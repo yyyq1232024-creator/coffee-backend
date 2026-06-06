@@ -1,0 +1,6 @@
+{
+  "name": "User Management System",
+  "description": "A full-stack B/S architecture user and administrator management system featuring registration, login, personal profiles, and full admin CRUD functionality.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
