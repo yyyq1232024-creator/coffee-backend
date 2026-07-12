@@ -30,17 +30,19 @@
 
 @keyframes danmakuRun {
   0% {
-    transform: translateX(110%);
+    transform: translate3d(0, -50%, 0);
   }
   100% {
-    transform: translateX(-150%);
+    transform: translate3d(calc(-100% - 100vw), -50%, 0);
   }
 }
 
 .animate-danmaku {
   display: inline-block;
   white-space: nowrap;
-  animation: danmakuRun 25s linear infinite;
+  animation: danmakuRun 40s linear infinite both;
+  will-change: transform;
+  backface-visibility: hidden;
 }
 
 .animate-danmaku:hover {

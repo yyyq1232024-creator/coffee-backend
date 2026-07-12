@@ -29,8 +29,8 @@ export interface WishlistItem {
 }
 
 export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateToRegister, onLogout }: CoffeeShopProps) {
-  // Navigation tabs: 'home' | 'menu' | 'builder' | 'wishlist' | 'about' | 'contact'
-  const [activeTab, setActiveTab] = useState<'home' | 'menu' | 'builder' | 'wishlist' | 'about' | 'contact'>('home');
+  // Navigation tabs: 'home' | 'menu' | 'builder' | 'wishlist' | 'about' | 'contact' | 'printer'
+  const [activeTab, setActiveTab] = useState<'home' | 'menu' | 'builder' | 'wishlist' | 'about' | 'contact' | 'printer'>('home');
   const [menuFilter, setMenuFilter] = useState<'all' | 'coffee' | 'tea' | 'dessert'>('all');
   const [contactSuccess, setContactSuccess] = useState(false);
   const [wishlist, setWishlist] = useState<WishlistItem[]>([]);
@@ -41,48 +41,152 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
   const [receiptNumber, setReceiptNumber] = useState('');
   const [receiptType, setReceiptType] = useState<'dine-in' | 'take-away'>('dine-in');
   const [checkoutLoading, setCheckoutLoading] = useState(false);
+  const [receiptItems, setReceiptItems] = useState<WishlistItem[]>([]);
+  const [checkoutNotes, setCheckoutNotes] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState<'wechat' | 'alipay' | 'member'>('wechat');
+  const [lastPrintJobId, setLastPrintJobId] = useState<string | null>(null);
 
   const handleCheckout = async () => {
     if (wishlist.length === 0) return;
     setCheckoutLoading(true);
     try {
-      const res = await fetch('/api/orders/checkout', {
+      // ① 生成 UUID 作为 jobId (自定义高防冲突的全局订单唯一热敏凭证号)
+      const jobId = "PRT-" + Math.floor(1000 + Math.random() * 9000) + "-" + Math.random().toString(36).substring(2, 8).toUpperCase();
+
+      // ② snapshot = [...wishlist]  ← 先快照，再清空
+      const snapshot = [...wishlist];
+
+      const notesString = checkoutNotes.trim() ? `【客座座号/打包交代】${checkoutNotes.trim()}` : '';
+
+      // Create physical checkout order on database
+      let orderId = 'ord-new-' + Math.random().toString(36).substring(2, 10);
+      try {
+        const checkoutRes = await fetch('/api/orders/checkout', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+          },
+          body: JSON.stringify({
+            jobId, // pass pre-generated jobId
+            items: snapshot.map((itm) => ({
+              id: itm.wishId,
+              name: itm.name,
+              price: itm.price,
+              size: itm.size,
+              sugar: itm.sugar,
+              milk: itm.milk,
+              temp: itm.temp,
+              notes: itm.notes ? `${itm.notes} ${notesString}` : notesString,
+              img: itm.img
+            })),
+            totalPrice: totalWishlistPrice,
+            buyerName: user ? user.name : "自助常旅客",
+            buyerUsername: user ? user.username : "guest",
+            type: receiptType
+          })
+        });
+        const checkoutData = await checkoutRes.json();
+        if (checkoutRes.ok && checkoutData.success) {
+          if (checkoutData.data?.id) {
+            orderId = checkoutData.data.id;
+          }
+        }
+      } catch (checkoutErr) {
+        console.error("Order checkout endpoint error:", checkoutErr);
+      }
+
+      // ⑤ setWishlist([])  ← 清空购物车
+      saveWishlist([]);
+
+      // ⑥ setShowReceipt(true)  ← 显示收据
+      setReceiptItems([...snapshot]);
+      setReceiptNumber(orderId);
+      setLastPrintJobId(jobId);
+      setShowReceipt(true);
+
+      alert('🎉 订单支付及入账成功！系统已为您生成提单凭证。您可点击下方「共享打单并出纸」进行吧台实时实体出单，或者直接点击「关闭」暂不打印（稍后您也可以在大堂选项卡自行补打）。');
+    } catch (e: any) {
+      alert(`下单支付出错: ${e.message}`);
+    } finally {
+      setCheckoutLoading(false);
+    }
+  };
+
+  const handleCreateAndPrintJob = async () => {
+    if (!lastPrintJobId) return;
+    try {
+      const itemsToPrint = receiptItems.length > 0 ? receiptItems : wishlist;
+      const notesString = checkoutNotes.trim() ? `【客座座号/打包交代】${checkoutNotes.trim()}` : '';
+      const finalPrice = itemsToPrint.reduce((sum, item) => sum + item.price, 0);
+
+      // Submit print job to the server
+      const printJobsRes = await fetch('/api/print-jobs', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           ...(token ? { 'Authorization': `Bearer ${token}` } : {})
         },
         body: JSON.stringify({
-          items: wishlist.map((itm) => ({
-            id: itm.wishId,
+          jobId: lastPrintJobId,
+          orderId: receiptNumber,
+          items: itemsToPrint.map((itm) => ({
             name: itm.name,
             price: itm.price,
             size: itm.size,
             sugar: itm.sugar,
             milk: itm.milk,
             temp: itm.temp,
-            notes: itm.notes,
-            img: itm.img
+            notes: itm.notes ? (itm.notes.includes('【客座') ? itm.notes : `${itm.notes} ${notesString}`) : notesString
           })),
-          totalPrice: totalWishlistPrice,
+          totalPrice: finalPrice,
           buyerName: user ? user.name : "自助常旅客",
-          buyerUsername: user ? user.username : "guest",
-          type: receiptType
+          buyerUsername: user ? user.username : "guest"
         })
       });
 
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || '结算失败');
+      const printJobsData = await printJobsRes.json();
+      if (!printJobsRes.ok || !printJobsData.success) {
+        throw new Error(printJobsData.error || '创建中央打印机队列任务失败');
       }
 
-      alert(data.message || '🎉 下单支付成功！大堂工匠已接到您的实时订单。');
-      saveWishlist([]);
+      // Add to print queue state immediately
+      const newJob = {
+        id: lastPrintJobId,
+        orderId: receiptNumber,
+        buyerName: user ? user.name : "自助常旅客",
+        buyerUsername: user ? user.username : "guest",
+        totalPrice: finalPrice,
+        items: itemsToPrint.map((itm) => ({
+          name: itm.name,
+          price: itm.price,
+          size: itm.size,
+          sugar: itm.sugar,
+          milk: itm.milk,
+          temp: itm.temp,
+          notes: itm.notes ? (itm.notes.includes('【客座') ? itm.notes : `${itm.notes} ${notesString}`) : notesString
+        })),
+        timestamp: new Date().toISOString(),
+        status: 'pending' as const
+      };
+
+      const nextIds = myPrintJobIds.includes(lastPrintJobId) ? myPrintJobIds : [...myPrintJobIds, lastPrintJobId];
+      recordMyPrintJobId(lastPrintJobId);
+      
+      setPrintQueue(prev => {
+        const filtered = prev.filter(j => j.id !== lastPrintJobId);
+        return [newJob, ...filtered];
+      });
+
+      // Close modal and navigate
       setShowReceipt(false);
+      setActiveTab('printer');
+
+      // Instantly trigger execution (print and roll out) with current fresh updatedMyPrintJobIds array
+      await handleExecutePrint(lastPrintJobId, nextIds);
+
     } catch (e: any) {
-      alert(`下单支付出错: ${e.message}`);
-    } finally {
-      setCheckoutLoading(false);
+      alert(`提交并执行打印任务出错: ${e.message}`);
     }
   };
 
@@ -152,7 +256,7 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
       name: nick,
       stars,
       lane: Math.floor(Math.random() * 3),
-      speed: Math.floor(Math.random() * 8) + 16 // between 16 and 24 seconds duration
+      speed: Math.floor(Math.random() * 10) + 26 // between 26 and 36 seconds duration
     };
     const updated = [newDanmaku, ...liveReviews];
     setLiveReviews(updated);
@@ -182,6 +286,211 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
   const saveWishlist = (newWishlist: WishlistItem[]) => {
     setWishlist(newWishlist);
     localStorage.setItem(storageKey, JSON.stringify(newWishlist));
+  };
+
+  // ==================== Shared Server-Side Printer Integration ====================
+  const [printQueue, setPrintQueue] = useState<any[]>([]);
+  const [isQueueLoading, setIsQueueLoading] = useState(false);
+  const [executingJobId, setExecutingJobId] = useState<string | null>(null);
+  const [showAllSharedQueue, setShowAllSharedQueue] = useState(false);
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setNow(Date.now());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const [myPrintJobIds, setMyPrintJobIds] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('my_print_job_ids');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const recordMyPrintJobId = (id: string) => {
+    setMyPrintJobIds(prev => {
+      const next = prev.includes(id) ? prev : [...prev, id];
+      localStorage.setItem('my_print_job_ids', JSON.stringify(next));
+      return next;
+    });
+  };
+
+  const filteredPrintQueue = printQueue.filter(job => {
+    if (user?.role === 'admin' && showAllSharedQueue) return true;
+    if (user && job.buyerUsername === user.username) return true;
+    if (myPrintJobIds.includes(job.id)) return true;
+    return false;
+  });
+
+  const getJobCountdown = (job: any) => {
+    if (job.status !== 'pending') return null;
+    const jobTime = new Date(job.timestamp).getTime();
+    const expiryTime = jobTime + 5 * 60 * 1000;
+    const secondsLeft = Math.max(0, Math.floor((expiryTime - now) / 1000));
+    
+    if (secondsLeft <= 0) {
+      return { text: "⏳ 正在清理...", expired: true, secondsLeft };
+    }
+    
+    const minutes = Math.floor(secondsLeft / 60);
+    const seconds = secondsLeft % 60;
+    return {
+      text: `⏳ ${minutes}分${seconds.toString().padStart(2, '0')}秒`,
+      expired: false,
+      secondsLeft
+    };
+  };
+
+  const fetchPrintQueue = async (silent = false) => {
+    if (!silent) setIsQueueLoading(true);
+    try {
+      const res = await fetch('/api/print/queue');
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setPrintQueue(data.data);
+      }
+    } catch (e) {
+      console.error("Failed to fetch shared printer queue:", e);
+    } finally {
+      if (!silent) setIsQueueLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    // Initial load
+    fetchPrintQueue(true);
+
+    // Dynamic Server Poll every 4 seconds to catch and sync orders placed by other concurrent users!
+    const interval = setInterval(() => {
+      fetchPrintQueue(true);
+    }, 4000);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  // Instantly re-sync print queue from server when user switches to 'printer' tab
+  useEffect(() => {
+    if (activeTab === 'printer') {
+      fetchPrintQueue(false); // Show loading spinner for active user interaction
+    }
+  }, [activeTab]);
+
+  const canManageJob = (job: any) => {
+    if (user?.role === 'admin') return true;
+    if (user && job.buyerUsername === user.username) return true;
+    if (myPrintJobIds.includes(job.id)) return true;
+    return false;
+  };
+
+  const handleExecutePrint = async (jobId: string, updatedMyPrintJobIds?: string[]) => {
+    setExecutingJobId(jobId);
+    try {
+      const currentJobIds = updatedMyPrintJobIds || myPrintJobIds;
+
+      const res = await fetch(`/api/print/${jobId}/execute`, { 
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({ myPrintJobIds: currentJobIds })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || "打单失败");
+      }
+      
+      // Instantly mark local status to printing
+      setPrintQueue(prev => prev.map(j => j.id === jobId ? { ...j, status: 'printing' } : j));
+      
+      // Let the rolling print animation complete, then re-sync queue
+      setTimeout(() => {
+        fetchPrintQueue(true);
+        setExecutingJobId(null);
+      }, 2600);
+      
+    } catch (e: any) {
+      alert(`打单指令下发失败: ${e.message}`);
+      setExecutingJobId(null);
+    }
+  };
+
+  const handleConfirmAndDeleteJob = async (jobId: string) => {
+    try {
+      const res = await fetch(`/api/print/${jobId}/delete`, { 
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({ myPrintJobIds })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || "删除失败");
+      }
+      
+      // Remove from printQueue immediately in UI
+      setPrintQueue(prev => prev.filter(j => j.id !== jobId));
+      if (lastPrintJobId === jobId) {
+        setLastPrintJobId(null);
+      }
+      setShowReceipt(false);
+    } catch (e: any) {
+      alert(`销单失败: ${e.message}`);
+    }
+  };
+
+  const handleClearPrintQueue = async () => {
+    if (!confirm("⚠️ 确定要清空大堂共享打印机的所有历史队列吗？这会同步影响所有人的大屏展示。")) return;
+    try {
+      const res = await fetch('/api/print/clear', { 
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        }
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setPrintQueue([]);
+      } else {
+        alert(data.error || "清空服务器打印队列失败");
+      }
+    } catch (e) {
+      alert("清空服务器打印队列失败");
+    }
+  };
+
+  const handleManualPrintFromWishlist = async () => {
+    if (wishlist.length === 0) return;
+    try {
+      const res = await fetch('/api/print/submit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          buyerName: user ? user.name : "自助特调师",
+          buyerUsername: user ? user.username : "guest",
+          items: wishlist,
+          totalPrice: totalWishlistPrice
+        })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || "发送打印失败");
+      
+      if (data.data?.id) {
+        recordMyPrintJobId(data.data.id);
+      }
+
+      alert("🖨️ 手作风味单已实时投递至服务器打印队列！已通过共享通道连接。请点击「🖨️ 共享打单」选项卡查看纸张滚出。");
+      fetchPrintQueue(true);
+    } catch (e: any) {
+      alert(`发送服务器打印出错: ${e.message}`);
+    }
   };
 
   // Menu Items Definition
@@ -363,28 +672,28 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
             </span>
             
             {/* Main title (large) */}
-            <h1 className="text-4xl md:text-6xl font-bold leading-tight text-[#FAF9F5] font-serif tracking-tight border-b border-[#C49A6C]/30 pb-6 max-w-2xl mx-auto">
+            <h1 className="text-4xl md:text-6xl font-extrabold leading-tight text-[#FAF9F5] font-serif tracking-tight border-b border-white/10 pb-6 max-w-2xl mx-auto drop-shadow-sm">
               慢煮光阴 · 手作纯真一杯
             </h1>
             
             {/* Subtitle */}
             <p className="text-stone-300 text-xs md:text-sm leading-relaxed max-w-2xl font-light mx-auto">
-              在这里，没有冰冷的工业化量产，亦没有低质香精。我们选用极受推崇的耶加雪菲瑰夏原原豆，历经高级拼配，将温度与手作质感完整交还于您的指尖。
+              在这里，没有冰冷的工业化量产，亦没有低质香精。我们选用极受推崇的耶加雪菲瑰夏原豆，历经高级拼配，将温度与手作质感完整交还于您的指尖。
             </p>
 
             {/* Two CTA Buttons */}
             <div className="flex flex-wrap gap-4 justify-center pt-4">
               <button 
                 onClick={() => setActiveTab('menu')}
-                className="px-6 py-3 bg-[#8B5A2B] hover:bg-amber-800 text-[#FAF9F5] font-bold text-xs rounded-xl shadow-lg transition duration-200 border-none cursor-pointer font-serif"
+                className="px-7 py-3.5 bg-gradient-to-r from-amber-500 to-amber-700 hover:from-amber-600 hover:to-amber-800 text-[#FAF9F5] font-bold text-xs rounded-full shadow-lg shadow-amber-950/50 transition duration-300 border border-amber-400/20 cursor-pointer font-serif transform hover:scale-[1.04] active:scale-[0.98]"
               >
-                🛎️ 特色手作茶点单
+                特色手作茶点单
               </button>
               <button 
                 onClick={() => setActiveTab('builder')}
-                className="px-6 py-3 bg-[#FAF9F5] hover:bg-stone-100 text-[#5C3A21] font-bold text-xs rounded-xl shadow-md transition duration-200 border-none cursor-pointer font-serif"
+                className="px-7 py-3.5 bg-white/10 hover:bg-white/20 text-[#FAF9F5] font-bold text-xs rounded-full shadow-md transition duration-300 border border-white/15 cursor-pointer font-serif transform hover:scale-[1.04] active:scale-[0.98] backdrop-blur-md"
               >
-                🎨 去特调创意定制
+                去特调创意定制
               </button>
             </div>
           </div>
@@ -415,6 +724,14 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
             {user ? (
               <span className="flex items-center gap-2 flex-wrap">
                 欢迎常驻尊贵会员 <strong className="font-extrabold">{user.name}</strong> (@{user.username})！您的专属特权已激活，当前心愿特配卡片已同步至云端数据库映射。
+                <a 
+                  href={`/users/${user.username}.html`} 
+                  target="_blank" 
+                  rel="noopener noreferrer" 
+                  className="ml-2 px-2.5 py-1 bg-amber-50 hover:bg-amber-100 text-[#5C3A21] font-extrabold border border-amber-200/60 rounded-lg text-[10px] transition cursor-pointer flex items-center gap-1 no-underline"
+                >
+                  🔗 伪静态档案卡
+                </a>
                 {onLogout && (
                   <button 
                     onClick={onLogout} 
@@ -509,6 +826,21 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
           >
             📍 店铺联络
           </button>
+          <button 
+            onClick={() => setActiveTab('printer')}
+            className={`px-4 sm:px-6 py-3 text-xs sm:text-sm font-bold tracking-wider transition-all border-b-2 bg-transparent cursor-pointer relative font-serif ${
+              activeTab === 'printer' 
+                ? 'text-[#8B5A2B] border-[#8B5A2B] font-extrabold' 
+                : 'text-stone-500 hover:text-[#5C3A21] border-transparent hover:border-[#A88C74]/30'
+            }`}
+          >
+            🖨️ 共享打单
+            {printQueue.filter(j => j.status === 'pending').length > 0 && (
+              <span className="absolute -top-1 -right-1 bg-amber-700 text-[#FAF9F5] font-mono text-[9px] w-4.5 h-4.5 rounded-full flex items-center justify-center font-bold ring-2 ring-white">
+                {printQueue.filter(j => j.status === 'pending').length}
+              </span>
+            )}
+          </button>
         </div>
 
         {/* ==================== SCREEN A: COZY HOME ==================== */}
@@ -575,63 +907,57 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
               <div className="absolute inset-0 bg-[radial-gradient(#C49A6C_1px,transparent_1.5px)] [background-size:24px_24px] opacity-10 pointer-events-none" />
               
               {/* Lane 0 */}
-              <div className="relative w-full h-12 flex items-center overflow-hidden">
-                <div className="absolute left-0 right-0 whitespace-nowrap flex gap-6">
-                  {liveReviews.filter((_, i) => i % 3 === 0).map((item, index) => (
-                    <div 
-                      key={`lane0-${index}`}
-                      className="inline-flex items-center gap-2.5 px-4.5 py-2.5 rounded-2xl whitespace-nowrap bg-[#FAF9F5]/95 hover:bg-white hover:scale-105 hover:border-[#8B5A2B] hover:shadow-lg hover:-translate-y-0.5 text-stone-950 border border-[#A88C74]/30 shadow-sm backdrop-blur-md cursor-pointer text-xs font-semibold animate-danmaku select-none transition-all duration-200"
-                      style={{
-                        animationDuration: `${item.speed || 24}s`,
-                        animationDelay: `${index * 3.5}s`,
-                      }}
-                    >
-                      <span className="text-[#8B5A2B] font-bold shrink-0 font-serif">☕ @{item.name}</span>
-                      <span className="text-stone-700">{item.text}</span>
-                      <span className="text-amber-500 font-bold tracking-tight shrink-0 text-[10px]">{item.stars}</span>
-                    </div>
-                  ))}
-                </div>
+              <div className="relative w-full h-12 overflow-hidden">
+                {liveReviews.filter((_, i) => i % 3 === 0).map((item, index) => (
+                  <div 
+                    key={`lane0-${index}`}
+                    className="absolute left-full top-1/2 inline-flex items-center gap-2.5 px-4.5 py-2.5 rounded-2xl whitespace-nowrap bg-[#FAF9F5]/95 hover:bg-white hover:border-[#8B5A2B] hover:shadow-lg text-stone-950 border border-[#A88C74]/30 shadow-sm backdrop-blur-md cursor-pointer text-xs font-semibold animate-danmaku select-none transition-all duration-200"
+                    style={{
+                      animationDuration: `${(item.speed || 28) * 1.8}s`,
+                      animationDelay: `${(index * 9) - 20}s`,
+                    }}
+                  >
+                    <span className="text-[#8B5A2B] font-bold shrink-0 font-serif">☕ @{item.name}</span>
+                    <span className="text-stone-700">{item.text}</span>
+                    <span className="text-amber-500 font-bold tracking-tight shrink-0 text-[10px]">{item.stars}</span>
+                  </div>
+                ))}
               </div>
 
               {/* Lane 1 */}
-              <div className="relative w-full h-12 flex items-center overflow-hidden border-y border-[#A88C74]/10 bg-[#5C3A21]/15">
-                <div className="absolute left-0 right-0 whitespace-nowrap flex gap-6">
-                  {liveReviews.filter((_, i) => i % 3 === 1).map((item, index) => (
-                    <div 
-                      key={`lane1-${index}`}
-                      className="inline-flex items-center gap-2.5 px-4.5 py-2.5 rounded-2xl whitespace-nowrap bg-stone-800 hover:bg-stone-750 text-stone-50 hover:scale-105 hover:border-[#C49A6C] hover:shadow-lg hover:-translate-y-0.5 border border-stone-600 shadow-md backdrop-blur-md cursor-pointer text-xs font-semibold animate-danmaku select-none transition-all duration-200"
-                      style={{
-                        animationDuration: `${item.speed || 28}s`,
-                        animationDelay: `${index * 4.2}s`,
-                      }}
-                    >
-                      <span className="text-[#C49A6C] font-bold shrink-0 font-serif">🎨 @{item.name}</span>
-                      <span className="text-stone-250">{item.text}</span>
-                      <span className="text-[#C49A6C] font-bold tracking-tight shrink-0 text-[10px]">{item.stars}</span>
-                    </div>
-                  ))}
-                </div>
+              <div className="relative w-full h-12 overflow-hidden border-y border-[#A88C74]/10 bg-[#5C3A21]/15">
+                {liveReviews.filter((_, i) => i % 3 === 1).map((item, index) => (
+                  <div 
+                    key={`lane1-${index}`}
+                    className="absolute left-full top-1/2 inline-flex items-center gap-2.5 px-4.5 py-2.5 rounded-2xl whitespace-nowrap bg-stone-800 hover:bg-stone-750 text-stone-50 hover:border-[#C49A6C] hover:shadow-lg border border-stone-600 shadow-md backdrop-blur-md cursor-pointer text-xs font-semibold animate-danmaku select-none transition-all duration-200"
+                    style={{
+                      animationDuration: `${(item.speed || 32) * 1.8}s`,
+                      animationDelay: `${(index * 9.5) - 16}s`,
+                    }}
+                  >
+                    <span className="text-[#C49A6C] font-bold shrink-0 font-serif">🎨 @{item.name}</span>
+                    <span className="text-stone-250">{item.text}</span>
+                    <span className="text-[#C49A6C] font-bold tracking-tight shrink-0 text-[10px]">{item.stars}</span>
+                  </div>
+                ))}
               </div>
 
               {/* Lane 2 */}
-              <div className="relative w-full h-12 flex items-center overflow-hidden">
-                <div className="absolute left-0 right-0 whitespace-nowrap flex gap-6">
-                  {liveReviews.filter((_, i) => i % 3 === 2).map((item, index) => (
-                    <div 
-                      key={`lane2-${index}`}
-                      className="inline-flex items-center gap-2.5 px-4.5 py-2.5 rounded-2xl whitespace-nowrap bg-[#FAF9F5]/95 hover:bg-white hover:scale-105 hover:border-[#8B5A2B] hover:shadow-lg hover:-translate-y-0.5 text-stone-950 border border-[#A88C74]/30 shadow-sm backdrop-blur-md cursor-pointer text-xs font-semibold animate-danmaku select-none transition-all duration-200"
-                      style={{
-                        animationDuration: `${item.speed || 22}s`,
-                        animationDelay: `${index * 5.1}s`,
-                      }}
-                    >
-                      <span className="text-[#8B5A2B] font-bold shrink-0 font-serif">🌸 @{item.name}</span>
-                      <span className="text-stone-700">{item.text}</span>
-                      <span className="text-amber-500 font-bold tracking-tight shrink-0 text-[10px]">{item.stars}</span>
-                    </div>
-                  ))}
-                </div>
+              <div className="relative w-full h-12 overflow-hidden">
+                {liveReviews.filter((_, i) => i % 3 === 2).map((item, index) => (
+                  <div 
+                    key={`lane2-${index}`}
+                    className="absolute left-full top-1/2 inline-flex items-center gap-2.5 px-4.5 py-2.5 rounded-2xl whitespace-nowrap bg-[#FAF9F5]/95 hover:bg-white hover:border-[#8B5A2B] hover:shadow-lg text-stone-950 border border-[#A88C74]/30 shadow-sm backdrop-blur-md cursor-pointer text-xs font-semibold animate-danmaku select-none transition-all duration-200"
+                    style={{
+                      animationDuration: `${(item.speed || 30) * 1.8}s`,
+                      animationDelay: `${(index * 10) - 18}s`,
+                    }}
+                  >
+                    <span className="text-[#8B5A2B] font-bold shrink-0 font-serif">🌸 @{item.name}</span>
+                    <span className="text-stone-700">{item.text}</span>
+                    <span className="text-amber-500 font-bold tracking-tight shrink-0 text-[10px]">{item.stars}</span>
+                  </div>
+                ))}
               </div>
             </div>
 
@@ -1251,155 +1577,290 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
               </div>
             </div>
           ) : (
-            <div className="space-y-6 max-w-5xl mx-auto">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start max-w-6xl mx-auto">
               
-              {/* Filter controls / summary details */}
-              <div className="bg-[#EADECE]/20 border border-[#A88C74]/20 p-5 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-4">
-                <div className="text-xs text-[#5C3A21] leading-relaxed">
-                  您目前一共收藏了 <strong className="font-extrabold font-serif text-lg text-[#8B5A2B]">{wishlist.length}</strong> 份温情茶点。
-                  随时可一键生成印制提货风味卡单，展示给大堂咖啡师一键调和。
-                </div>
-
-                <div className="flex items-center gap-4 shrink-0">
-                  <div className="text-xs font-semibold text-[#5C3A21]">
-                    累计预估总花费: <strong className="text-rose-700 font-serif text-lg">¥{totalWishlistPrice}</strong>
-                  </div>
-                  
+              {/* Left Column: Custom Beverage Wishlist (lg:col-span-7) */}
+              <div className="lg:col-span-7 space-y-6">
+                
+                {/* Header info */}
+                <div className="flex items-center justify-between border-b border-[#A88C74]/20 pb-4">
+                  <h3 className="text-sm font-bold text-[#5C3A21] font-serif flex items-center gap-1.5">
+                    <span>🛍️</span> 您的特选调协清单 ({wishlist.length} 杯/件)
+                  </h3>
                   <button 
                     onClick={() => { if (window.confirm('确认清空您珍藏的全部风味特配单吗？')) saveWishlist([]); }}
-                    className="px-3.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg text-[10px] font-bold transition flex items-center gap-1 border-none cursor-pointer font-serif"
+                    className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg text-[10px] font-bold transition flex items-center gap-1 border-none cursor-pointer font-serif"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
-                    清空特配单
+                    清空配单
                   </button>
                 </div>
+
+                {/* Wishlist grid items */}
+                <div className="space-y-6">
+                  {wishlist.map((item) => (
+                    <div key={item.wishId} className="bg-white border border-[#A88C74]/20 p-5 rounded-3xl shadow-xs relative group hover:shadow-md transition-shadow space-y-4">
+                      
+                      {/* Delete item */}
+                      <button 
+                        onClick={() => handleDeleteWishItem(item.wishId)}
+                        className="absolute top-4 right-4 p-1.5 text-stone-400 hover:text-rose-600 bg-stone-50 hover:bg-rose-50 rounded-lg transition border-none cursor-pointer"
+                        title="删除此项"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+
+                      {/* item description header inside list */}
+                      <div className="flex gap-4 items-start pr-8">
+                        <div className="w-16 h-16 rounded-xl overflow-hidden bg-stone-100 shrink-0 border border-stone-200">
+                          <img src={item.img} alt={item.name} referrerPolicy="no-referrer" className="w-full h-full object-cover" />
+                        </div>
+                        
+                        <div className="space-y-1 flex-1">
+                          <span className="text-[9px] uppercase font-mono px-2 py-0.5 bg-[#FAF7F2] border border-[#A88C74]/30 rounded text-[#8B5A2B] font-bold inline-block leading-none">
+                            {item.itemId ? '大堂精选' : '研调高定'}
+                          </span>
+                          <h4 className="text-xs font-bold text-[#5C3A21] font-serif pr-2 line-clamp-1">{item.name}</h4>
+                          <p className="text-xs text-rose-700 font-bold font-mono">单价: ¥{item.price}</p>
+                        </div>
+                      </div>
+
+                      {/* Highly Interactive spec updating controls directly within wishlist items ! */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-[11px] bg-[#FAF9F5] p-3.5 rounded-2xl border border-[#A88C74]/15">
+                        
+                        {/* Cup Size */}
+                        <div className="space-y-1">
+                          <span className="text-[9px] font-bold text-stone-400 block">修改出水杯型</span>
+                          <select 
+                            value={item.size} 
+                            onChange={(e) => handleUpdateWishProps(item.wishId, 'size', e.target.value)}
+                            className="w-full py-1 px-1.5 rounded bg-white border border-stone-200 text-[10px] font-bold text-stone-700 focus:outline-[#5C3A21] cursor-pointer"
+                          >
+                            <option>中杯的轻盈体验 (Medium)</option>
+                            <option>大杯的大口满足 (Large)</option>
+                            <option>超大杯的饱满爽口 (Venti)</option>
+                          </select>
+                        </div>
+
+                        {/* Sugar specification update */}
+                        <div className="space-y-1">
+                          <span className="text-[9px] font-bold text-stone-400 block">修改微调甜度</span>
+                          <select 
+                            value={item.sugar} 
+                            onChange={(e) => handleUpdateWishProps(item.wishId, 'sugar', e.target.value)}
+                            className="w-full py-1 px-1.5 rounded bg-white border border-stone-200 text-[10px] font-semibold text-stone-700 focus:outline-[#5C3A21] cursor-pointer"
+                          >
+                            <option>天然零蔗木糖纯素 (0%)</option>
+                            <option>三分糖 (微甜微醇)</option>
+                            <option>半糖 (微甜恰到合适)</option>
+                            <option>标准糖分 (100%)</option>
+                          </select>
+                        </div>
+
+                        {/* Milk spec update */}
+                        <div className="space-y-1">
+                          <span className="text-[9px] font-bold text-stone-400 block">修改乳制品</span>
+                          <select 
+                            value={item.milk} 
+                            onChange={(e) => handleUpdateWishProps(item.wishId, 'milk', e.target.value)}
+                            className="w-full py-1 px-1.5 rounded bg-white border border-stone-200 text-[10px] font-semibold text-stone-700 focus:outline-[#5C3A21] cursor-pointer"
+                          >
+                            <option>香浓冰鲜牛奶</option>
+                            <option>低脂燕麦奶 (谷物浓郁)</option>
+                            <option>生椰厚醇乳 (椰丝清香)</option>
+                            <option>不含乳产品 (黑美式)</option>
+                          </select>
+                        </div>
+
+                        {/* Temp spec update */}
+                        <div className="space-y-1">
+                          <span className="text-[9px] font-bold text-stone-400 block">选用出水温度</span>
+                          <select 
+                            value={item.temp} 
+                            onChange={(e) => handleUpdateWishProps(item.wishId, 'temp', e.target.value)}
+                            className="w-full py-1 px-1.5 rounded bg-white border border-stone-200 text-[10px] font-semibold text-stone-700 focus:outline-[#5C3A21] cursor-pointer"
+                          >
+                            <option>标准热饮 (最醇厚香气)</option>
+                            <option>少冰 (清凉爽口)</option>
+                            <option>多冰 (降温冰冷)</option>
+                            <option>常温状态</option>
+                          </select>
+                        </div>
+
+                      </div>
+
+                      {/* Note input update */}
+                      <div className="space-y-1.5 text-[11px]">
+                        <span className="text-[9px] font-bold text-stone-400">特配备注或现场招待交代备注</span>
+                        <input 
+                          type="text" 
+                          value={item.notes}
+                          onChange={(e) => handleUpdateWishProps(item.wishId, 'notes', e.target.value)}
+                          placeholder="如：带打包架独立打包、另外附带杯托..."
+                          className="w-full p-2.5 rounded-xl bg-[#FAF9F5] border border-stone-100 text-[10px] placeholder:text-stone-300 focus:outline-[#5C3A21] focus:bg-white"
+                        />
+                      </div>
+
+                      {/* Footer bar for wishlist cards */}
+                      <div className="flex items-center justify-between text-[10px] text-stone-400 border-t border-stone-100 pt-3.5 font-mono">
+                        <span>单据ID: {item.wishId}</span>
+                        <span>收录于: {new Date(item.addedAt).toLocaleDateString()}</span>
+                      </div>
+
+                    </div>
+                  ))}
+                </div>
+
               </div>
 
-              {/* Action Buttons to print tickets */}
-              <div className="flex justify-end gap-3.5 pt-2">
-                <button
-                  type="button"
-                  onClick={handleGenerateTicket}
-                  className="px-6 py-3 bg-[#5C3A21] hover:bg-amber-950 text-white font-bold rounded-xl text-xs font-serif transition border-none cursor-pointer flex items-center gap-2 shadow-lg"
-                >
-                  <FileText className="w-4 h-4" />
-                  🧾 导出生成悠然堂食提货卡单
-                </button>
-              </div>
+              {/* Right Column: Premium Cashier Checkout Payment Card (lg:col-span-5) */}
+              <div className="lg:col-span-5 bg-[#FAF9F5] border-2 border-[#5C3A21]/15 rounded-3xl p-6 shadow-lg space-y-6 sticky top-24">
+                
+                {/* Header of Cashier */}
+                <div className="text-center border-b border-dashed border-stone-200 pb-4 space-y-1">
+                  <span className="text-[9px] uppercase font-mono tracking-widest bg-[#C49A6C] text-white px-2.5 py-0.5 rounded-full font-bold">
+                    ☕ LEISURELY LOBBY CASHIER
+                  </span>
+                  <h3 className="text-base font-bold text-[#5C3A21] font-serif">悠然大堂收银结算台</h3>
+                  <p className="text-[10px] text-stone-400 font-sans">请确认规格、配送形式并选择您的结算卡道</p>
+                </div>
 
-              {/* Wishlist grid items */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
-                {wishlist.map((item) => (
-                  <div key={item.wishId} className="bg-white border border-[#A88C74]/20 p-5 rounded-3xl shadow-xs relative group hover:shadow-md transition-shadow space-y-4">
-                    
-                    {/* Delete item */}
-                    <button 
-                      onClick={() => handleDeleteWishItem(item.wishId)}
-                      className="absolute top-4 right-4 p-1.5 text-stone-400 hover:text-rose-600 bg-stone-50 hover:bg-rose-50 rounded-lg transition border-none cursor-pointer"
-                      title="删除此项"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-
-                    {/* item description header inside list */}
-                    <div className="flex gap-4 items-start pr-8">
-                      <div className="w-16 h-16 rounded-xl overflow-hidden bg-stone-100 shrink-0 border border-stone-200">
-                        <img src={item.img} alt={item.name} referrerPolicy="no-referrer" className="w-full h-full object-cover" />
-                      </div>
-                      
-                      <div className="space-y-1 flex-1">
-                        <span className="text-[9px] uppercase font-mono px-2 py-0.5 bg-[#FAF7F2] border border-[#A88C74]/30 rounded text-[#8B5A2B] font-bold inline-block leading-none">
-                          {item.itemId ? '大堂精选' : '研调高定'}
-                        </span>
-                        <h4 className="text-xs font-bold text-[#5C3A21] font-serif pr-2 line-clamp-1">{item.name}</h4>
-                        <p className="text-xs text-rose-700 font-bold font-mono">单价: ¥{item.price}</p>
-                      </div>
-                    </div>
-
-                    {/* Highly Interactive spec updating controls directly within wishlist items ! */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 text-[11px] bg-[#FAF9F5] p-3.5 rounded-2xl border border-[#A88C74]/15">
-                      
-                      {/* Cup Size */}
-                      <div className="space-y-1">
-                        <span className="text-[9px] font-bold text-stone-400 block">修改出水杯型</span>
-                        <select 
-                          value={item.size} 
-                          onChange={(e) => handleUpdateWishProps(item.wishId, 'size', e.target.value)}
-                          className="w-full py-1 px-1.5 rounded bg-white border border-stone-200 text-[10px] font-bold text-stone-700 focus:outline-[#5C3A21]"
-                        >
-                          <option>中杯的轻盈体验 (Medium)</option>
-                          <option>大杯的大口满足 (Large)</option>
-                          <option>超大杯的饱满爽口 (Venti)</option>
-                        </select>
-                      </div>
-
-                      {/* Sugar specification update */}
-                      <div className="space-y-1">
-                        <span className="text-[9px] font-bold text-stone-400 block">修改微调甜度</span>
-                        <select 
-                          value={item.sugar} 
-                          onChange={(e) => handleUpdateWishProps(item.wishId, 'sugar', e.target.value)}
-                          className="w-full py-1 px-1.5 rounded bg-white border border-stone-200 text-[10px] font-semibold text-stone-700 focus:outline-[#5C3A21]"
-                        >
-                          <option>天然零蔗木糖纯素 (0%)</option>
-                          <option>三分糖 (微甜微醇)</option>
-                          <option>半糖 (微甜恰到合适)</option>
-                          <option>标准糖分 (100%)</option>
-                        </select>
-                      </div>
-
-                      {/* Milk spec update */}
-                      <div className="space-y-1">
-                        <span className="text-[9px] font-bold text-stone-400 block">修改乳制品</span>
-                        <select 
-                          value={item.milk} 
-                          onChange={(e) => handleUpdateWishProps(item.wishId, 'milk', e.target.value)}
-                          className="w-full py-1 px-1.5 rounded bg-white border border-stone-200 text-[10px] font-semibold text-stone-700 focus:outline-[#5C3A21]"
-                        >
-                          <option>香浓冰鲜牛奶</option>
-                          <option>低脂燕麦奶 (谷物浓郁)</option>
-                          <option>生椰厚醇乳 (椰丝清香)</option>
-                          <option>不含乳产品 (黑美式)</option>
-                        </select>
-                      </div>
-
-                      {/* Temp spec update */}
-                      <div className="space-y-1">
-                        <span className="text-[9px] font-bold text-stone-400 block">选用出水温度</span>
-                        <select 
-                          value={item.temp} 
-                          onChange={(e) => handleUpdateWishProps(item.wishId, 'temp', e.target.value)}
-                          className="w-full py-1 px-1.5 rounded bg-white border border-stone-200 text-[10px] font-semibold text-stone-700 focus:outline-[#5C3A21]"
-                        >
-                          <option>标准热饮 (最醇厚香气)</option>
-                          <option>少冰 (清凉爽口)</option>
-                          <option>多冰 (降温冰冷)</option>
-                          <option>常温状态</option>
-                        </select>
-                      </div>
-
-                    </div>
-
-                    {/* Note input update */}
-                    <div className="space-y-1.5 text-[11px]">
-                      <span className="text-[9px] font-bold text-stone-400">特配备注或现场招待交代备注</span>
-                      <input 
-                        type="text" 
-                        value={item.notes}
-                        onChange={(e) => handleUpdateWishProps(item.wishId, 'notes', e.target.value)}
-                        placeholder="如：带打包架独立打包、另外附带杯托..."
-                        className="w-full p-2.5 rounded-xl bg-[#FAF9F5] border border-stone-100 text-[10px] placeholder:text-stone-300 focus:outline-[#5C3A21] focus:bg-white"
-                      />
-                    </div>
-
-                    {/* Footer bar for wishlist cards */}
-                    <div className="flex items-center justify-between text-[10px] text-stone-400 border-t border-stone-100 pt-3.5 font-mono">
-                      <span>单据ID: {item.wishId}</span>
-                      <span>收录于: {new Date(item.addedAt).toLocaleDateString()}</span>
-                    </div>
-
+                {/* Pricing summary */}
+                <div className="space-y-2.5 text-xs text-stone-600 bg-white p-4 rounded-2xl border border-[#A88C74]/10 shadow-xs">
+                  <div className="flex justify-between items-center">
+                    <span className="text-stone-400">商品件数 (Total Items):</span>
+                    <span className="font-mono font-bold text-[#5C3A21]">{wishlist.length} 杯/件</span>
                   </div>
-                ))}
+                  <div className="flex justify-between items-center">
+                    <span className="text-stone-400">定制调配费 (Extras):</span>
+                    <span className="text-stone-400 font-mono">¥0.00 (尊享免费)</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-stone-400">大堂服务保障费:</span>
+                    <span className="text-stone-400 font-mono">¥0.00 (免费承保)</span>
+                  </div>
+                  <div className="border-t border-dashed border-stone-100 pt-2.5 flex justify-between items-center">
+                    <span className="font-bold text-[#5C3A21]">应付总计 (Grand Total):</span>
+                    <span className="text-rose-700 font-bold font-serif text-lg">¥ {totalWishlistPrice}</span>
+                  </div>
+                </div>
+
+                {/* Checkout custom fields */}
+                <div className="space-y-4">
+                  {/* Dining Options */}
+                  <div className="space-y-2">
+                    <label className="text-[11px] font-bold text-[#5C3A21] block">🍽️ 配送就餐形式</label>
+                    <div className="grid grid-cols-2 gap-2 p-1 bg-stone-100 rounded-xl border border-stone-200">
+                      <button
+                        type="button"
+                        onClick={() => setReceiptType('dine-in')}
+                        className={`py-2 rounded-lg text-xs font-bold transition duration-250 border-none cursor-pointer flex items-center justify-center gap-1.5 ${receiptType === 'dine-in' ? 'bg-[#5C3A21] text-[#FAF9F5] shadow' : 'text-stone-500 bg-transparent'}`}
+                      >
+                        <span>🍽️ 堂食现调 (Dine In)</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setReceiptType('take-away')}
+                        className={`py-2 rounded-lg text-xs font-bold transition duration-250 border-none cursor-pointer flex items-center justify-center gap-1.5 ${receiptType === 'take-away' ? 'bg-[#5C3A21] text-[#FAF9F5] shadow' : 'text-stone-500 bg-transparent'}`}
+                      >
+                        <span>🛍️ 外带打包 (Take Away)</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Desk / Special notes */}
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-bold text-[#5C3A21] block">🛋️ 客座桌号 / 打包特别交代</label>
+                    <input
+                      type="text"
+                      value={checkoutNotes}
+                      onChange={(e) => setCheckoutNotes(e.target.value)}
+                      placeholder={receiptType === 'dine-in' ? "如：大堂3号桌、吧台最左侧座、临窗C1卡座..." : "如：带双杯打包托、约15分钟后取、无需吸管..."}
+                      className="w-full p-2.5 text-xs rounded-xl bg-white border border-stone-200 focus:outline-[#5C3A21] font-semibold text-stone-800"
+                    />
+                  </div>
+
+                  {/* Payment Method Selector */}
+                  <div className="space-y-2">
+                    <label className="text-[11px] font-bold text-[#5C3A21] block">💳 选用结算支付账户 / 渠道</label>
+                    <div className="space-y-2">
+                      {/* WeChat Pay */}
+                      <button
+                        type="button"
+                        onClick={() => setPaymentMethod('wechat')}
+                        className={`w-full p-3 rounded-xl border text-left flex items-center justify-between transition cursor-pointer ${paymentMethod === 'wechat' ? 'bg-emerald-50/75 border-emerald-500 text-emerald-900' : 'bg-white border-stone-200 text-stone-600 hover:bg-stone-50'}`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="text-base text-emerald-500">🟢</span>
+                          <div className="text-left">
+                            <div className="text-xs font-bold">微信支付 · WeChat Pay</div>
+                            <div className="text-[9px] text-stone-400">支持零钱/储蓄卡/信用卡支付</div>
+                          </div>
+                        </div>
+                        {paymentMethod === 'wechat' && <span className="text-emerald-600 text-xs font-bold font-serif">✓</span>}
+                      </button>
+
+                      {/* Alipay */}
+                      <button
+                        type="button"
+                        onClick={() => setPaymentMethod('alipay')}
+                        className={`w-full p-3 rounded-xl border text-left flex items-center justify-between transition cursor-pointer ${paymentMethod === 'alipay' ? 'bg-blue-50/75 border-blue-500 text-blue-900' : 'bg-white border-stone-200 text-stone-600 hover:bg-stone-50'}`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="text-base text-blue-500">🔵</span>
+                          <div className="text-left">
+                            <div className="text-xs font-bold">支付宝 · Alipay</div>
+                            <div className="text-[9px] text-stone-400">支持花呗/余额宝/安全通道付款</div>
+                          </div>
+                        </div>
+                        {paymentMethod === 'alipay' && <span className="text-blue-600 text-xs font-bold font-serif">✓</span>}
+                      </button>
+
+                      {/* Cozy Member Card Balance */}
+                      <button
+                        type="button"
+                        onClick={() => setPaymentMethod('member')}
+                        className={`w-full p-3 rounded-xl border text-left flex items-center justify-between transition cursor-pointer ${paymentMethod === 'member' ? 'bg-amber-50/75 border-[#5C3A21] text-amber-900' : 'bg-white border-stone-200 text-stone-600 hover:bg-stone-50'}`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="text-base text-[#5C3A21]">🤎</span>
+                          <div className="text-left">
+                            <div className="text-xs font-bold">悠然会员卡余额 · Member Balance</div>
+                            <div className="text-[9px] text-stone-400">当前余额: ¥150.00 (尊享会员折抵)</div>
+                          </div>
+                        </div>
+                        {paymentMethod === 'member' && <span className="text-amber-800 text-xs font-bold font-serif">✓</span>}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Submit payment button */}
+                <div className="space-y-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={handleCheckout}
+                    disabled={checkoutLoading}
+                    className="w-full py-3.5 bg-[#5C3A21] hover:bg-amber-950 text-[#FAF9F5] font-black text-xs rounded-2xl shadow-md hover:shadow-lg transition duration-250 border-none cursor-pointer flex items-center justify-center gap-2 active:scale-98 disabled:opacity-50"
+                  >
+                    {checkoutLoading ? (
+                      <span className="flex items-center gap-1.5">
+                        <svg className="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                        </svg>
+                        <span>风味调制交融中，请稍候...</span>
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-2">
+                        <span>💳 确认支付并投递订单 (¥{totalWishlistPrice})</span>
+                      </span>
+                    )}
+                  </button>
+                  <p className="text-[9px] text-stone-400 text-center leading-normal">
+                    * 支付成功后将立刻获取纸质风味纪念小票。您不仅可以本地复打，服务器共享热敏机也将立刻获取打单任务！
+                  </p>
+                </div>
               </div>
 
             </div>
@@ -1563,6 +2024,278 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
         </div>
       )}
 
+      {/* ==================== SCREEN G: CENTRAL SERVER PRINTER ==================== */}
+      {activeTab === 'printer' && (
+        <div id="cozy-printer-screen" className="space-y-8 animate-fadeIn max-w-4xl mx-auto text-xs">
+          
+          {/* Header Architecture Info Block */}
+          <div className="bg-gradient-to-r from-[#5C3A21] to-[#2D1A12] text-[#FAF9F5] rounded-3xl p-6 md:p-8 shadow-md relative overflow-hidden border-none">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full translate-x-12 -translate-y-12 pointer-events-none" />
+            <div className="relative z-10 space-y-3">
+              <span className="text-[10px] bg-[#C49A6C] text-[#FAF9F5] px-2.5 py-1 rounded-full font-bold uppercase tracking-widest">
+                🖨️ 吧台打印中心 (Bar Printing Console)
+              </span>
+              <h2 className="text-xl md:text-2xl font-bold font-serif">大堂中央网络热敏打印服务器</h2>
+              <p className="text-stone-300 text-xs leading-relaxed max-w-2xl font-light">
+                本控制台与悠然吧台的网络热敏打印机实时直连。欢迎您使用打印订单功能。
+              </p>
+              <div className="flex flex-wrap gap-4 pt-2 text-[10px] text-stone-300 font-mono">
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" /> 通信状态: 在线联机 (Connected)</span>
+                <span className="flex items-center gap-1">● 传输协议: REST / HTTPS</span>
+                <span className="flex items-center gap-1">● 终端反馈: 实时风味数据流</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Interactive Printer Machine Visualizer */}
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-8 items-start">
+            
+            {/* Visual Thermal Printer Mockup (Left Column) */}
+            <div className="md:col-span-5 bg-stone-100 border border-stone-250 rounded-3xl p-6 flex flex-col items-center justify-center text-center space-y-4 shadow-inner relative overflow-hidden">
+              <div className="absolute inset-0 bg-[radial-gradient(#8B5A2B_1px,transparent_1.5px)] [background-size:24px_24px] opacity-5 pointer-events-none" />
+              
+              <h3 className="text-[10px] font-black text-stone-700 tracking-wider font-serif uppercase">★ 吧台热敏打印机实体 ★</h3>
+              
+              {/* The physical printer container */}
+              <div className="w-48 h-36 bg-stone-800 rounded-t-3xl border-4 border-stone-700 shadow-md relative flex flex-col justify-end">
+                {/* Status LED */}
+                <div className="absolute top-4 right-4 flex items-center gap-1 bg-black/40 px-2 py-0.5 rounded-full text-[8px] text-stone-300">
+                  <span className={`w-1.5 h-1.5 rounded-full ${executingJobId ? 'bg-amber-500 animate-ping' : 'bg-emerald-500'}`} />
+                  <span>{executingJobId ? 'BUSY' : 'READY'}</span>
+                </div>
+                
+                {/* Printer Feed Slit */}
+                <div className="w-full h-4 bg-stone-950 border-b-2 border-stone-800 flex items-center justify-center relative">
+                  <div className="w-[90%] h-1 bg-stone-900 rounded-full" />
+                </div>
+
+                {/* Animated Thermal Paper coming out */}
+                {(() => {
+                  const activePrintJob = filteredPrintQueue.find(j => j.id === executingJobId) || filteredPrintQueue[0];
+                  return (
+                    <div 
+                      className={`w-[84%] bg-[#FAF9F5] border-x border-stone-300 shadow-sm mx-auto transition-all duration-1000 origin-top overflow-hidden text-[7px] text-stone-600 p-2 font-mono leading-tight space-y-1`}
+                      style={{
+                        height: executingJobId ? '95px' : '20px',
+                        opacity: filteredPrintQueue.length > 0 ? 1 : 0,
+                        boxShadow: '0 8px 16px rgba(0,0,0,0.1)'
+                      }}
+                    >
+                      <div className="text-center border-b border-dashed border-stone-300 pb-1 font-bold">
+                        *** LEISURELY PRINT ***
+                      </div>
+                      <div className="flex justify-between font-bold">
+                        <span>单号:</span>
+                        <span className="truncate max-w-[50px]">{activePrintJob?.id || 'PRT-MOCK'}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>顾客:</span>
+                        <span>{activePrintJob?.buyerName || '爱丽丝'}</span>
+                      </div>
+                      <div className="text-center text-[6px] text-stone-400 pt-1.5 animate-pulse">
+                        {executingJobId ? '▲ 正在进纸中...' : '▼ 纸卷已就绪'}
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+              
+              {/* Printer stand block */}
+              <div className="w-56 h-4 bg-stone-700 rounded-full shadow-md animate-pulse" />
+
+              <div className="space-y-1.5">
+                <p className="text-[11px] font-bold text-stone-700">悠然堂舍一号机 (Bar Printer #1)</p>
+                <p className="text-[10px] text-stone-500 max-w-[200px] mx-auto leading-normal">
+                 
+                </p>
+              </div>
+
+              {/* Reset/Clear Buttons */}
+              <div className="flex gap-2 w-full pt-2">
+                <button 
+                  onClick={() => fetchPrintQueue()} 
+                  className={`${user?.role === 'admin' ? 'flex-1' : 'w-full'} py-2 bg-white hover:bg-stone-50 text-stone-700 border border-stone-300 rounded-xl transition font-bold cursor-pointer`}
+                >
+                  🔄 刷新队列
+                </button>
+                {user?.role === 'admin' && (
+                  <button 
+                    onClick={handleClearPrintQueue} 
+                    className="flex-1 py-2 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-xl transition font-bold cursor-pointer text-xs"
+                  >
+                    🗑 清空队列
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Central Printer Queue List (Right Column) */}
+            <div className="md:col-span-7 space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3 bg-stone-50 border border-stone-200 p-4 rounded-2xl">
+                <div className="space-y-1">
+                  <h3 className="text-sm font-bold text-[#5C3A21] font-serif flex items-center gap-1.5 m-0">
+                    <span>🗂️</span> {user?.role === 'admin' && showAllSharedQueue ? "大堂全店打单池" : "我的专属打单池"} ({filteredPrintQueue.length} 笔任务)
+                  </h3>
+                  <p className="text-[10px] text-stone-500 m-0">
+                    {user?.role === 'admin' && showAllSharedQueue ? "⚠️ 管理员监控中：当前已列出全店其他所有并发客人的打印实体单" : "🔒 顾客专属保护：仅显示您自己在当前客户端下单并执行打单的凭证"}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  {user?.role === 'admin' && (
+                    <button
+                      onClick={() => setShowAllSharedQueue(!showAllSharedQueue)}
+                      className="px-3 py-1.5 bg-white hover:bg-stone-100 text-stone-700 border border-stone-300 rounded-xl text-[10px] font-bold cursor-pointer transition duration-150 active:scale-95"
+                    >
+                      {showAllSharedQueue ? "👤 仅看我的" : "👥 查看全店"}
+                    </button>
+                  )}
+                  <span className="text-[9px] bg-amber-50 text-[#8B5A2B] border border-amber-200 px-2 py-1 rounded-full font-mono flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                    4s自动轮询
+                  </span>
+                </div>
+              </div>
+
+              {isQueueLoading ? (
+                <div className="p-12 text-center text-stone-400 bg-white border border-stone-200 rounded-3xl">
+                  正在与大堂服务器建立高速打印管道，拉取数据中...
+                </div>
+              ) : filteredPrintQueue.length === 0 ? (
+                <div className="p-12 text-center text-stone-400 bg-white border border-stone-200 rounded-3xl space-y-3">
+                  <p className="text-sm font-bold">🖨️ 您的专属打单队列当前为空</p>
+                  <p className="text-xs leading-normal max-w-sm mx-auto text-stone-500">
+                    您已付款的订单将作为提单凭证储存在您的账户中。您可以点击购物车支付弹出的收据页中的「共享打单并出纸」下达指令，或者在此大堂手动投递。
+                  </p>
+                  <div className="pt-2">
+                    <button 
+                      onClick={() => setActiveTab('menu')}
+                      className="px-4 py-2.5 bg-[#5C3A21] hover:bg-amber-950 text-white font-bold rounded-xl text-xs transition cursor-pointer border-none font-serif"
+                    >
+                      去点杯咖啡 →
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-4 max-h-[520px] overflow-y-auto pr-2">
+                  {filteredPrintQueue.map((job) => (
+                    <div 
+                      key={job.id} 
+                      className={`bg-white border transition rounded-3xl p-5 shadow-xs flex flex-col md:flex-row justify-between gap-4 ${
+                        job.status === 'printing' ? 'border-amber-500 ring-2 ring-amber-500/20' : 'border-stone-200'
+                      }`}
+                    >
+                      <div className="space-y-3 flex-1">
+                        {/* Header metadata */}
+                        <div className="flex flex-wrap items-center gap-2 text-[10px]">
+                          <span className="font-mono font-black text-[#5C3A21] bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md text-[10px]">
+                            {job.id}
+                          </span>
+                          <span className="text-stone-300">|</span>
+                          <span className="font-bold text-stone-700">顾客: {job.buyerName} (@{job.buyerUsername})</span>
+                          <span className="text-stone-300">|</span>
+                          <span className="text-stone-400 font-mono">{new Date(job.timestamp).toLocaleTimeString()}</span>
+                          {job.status === 'pending' && (() => {
+                            const countdown = getJobCountdown(job);
+                            return countdown ? (
+                              <>
+                                <span className="text-stone-300">|</span>
+                                <span className={`font-mono px-2 py-0.5 rounded-full font-bold flex items-center gap-1 text-[9px] ${
+                                  countdown.secondsLeft < 60 
+                                    ? 'bg-red-50 text-red-600 border border-red-200 animate-pulse' 
+                                    : 'bg-[#5C3A21]/5 text-[#5C3A21] border border-[#5C3A21]/15'
+                                }`}>
+                                  {countdown.text}
+                                </span>
+                              </>
+                            ) : null;
+                          })()}
+                        </div>
+
+                        {/* Items listed */}
+                        <div className="space-y-1 bg-[#FAF9F5] p-3.5 rounded-2xl border border-[#A88C74]/10 font-mono text-[11px] text-stone-600">
+                          {job.items.map((itm: any, idx: number) => (
+                            <div key={idx} className="flex justify-between">
+                              <span className="font-bold text-stone-700 truncate max-w-[200px]">
+                                {itm.name}
+                              </span>
+                              <span className="text-stone-500 text-[10px]">
+                                {itm.size?.includes('Large') ? '大' : itm.size?.includes('Venti') ? '超大' : '中'} / {itm.sugar?.substring(0, 3)} / {itm.temp?.substring(0, 2)}
+                              </span>
+                            </div>
+                          ))}
+                          <div className="border-t border-dashed border-stone-200 pt-1.5 mt-1.5 flex justify-between font-bold text-stone-800">
+                            <span>应付结算总计</span>
+                            <span>￥{job.totalPrice}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Action buttons on the right */}
+                      <div className="flex flex-row md:flex-col justify-center items-stretch gap-2 shrink-0 min-w-[130px]">
+                        {job.status === 'pending' && (
+                          canManageJob(job) ? (
+                            <button
+                              onClick={() => handleExecutePrint(job.id)}
+                              disabled={executingJobId !== null}
+                              className="w-full py-2.5 bg-amber-600 hover:bg-amber-700 text-[#FAF9F5] rounded-xl transition font-black cursor-pointer text-xs border-none flex items-center justify-center gap-1 disabled:opacity-50"
+                            >
+                              <Printer className="w-3.5 h-3.5" />
+                              <span>下达打单指令</span>
+                            </button>
+                          ) : (
+                            <div className="w-full py-2.5 bg-stone-100 text-stone-400 rounded-xl text-center font-bold text-xs border border-stone-200 select-none flex items-center justify-center gap-1" title="仅该订单拥有者或系统管理员有权执行此打印任务">
+                              <span>🔒 他人专属单</span>
+                            </div>
+                          )
+                        )}
+                        {job.status === 'printing' && (
+                          <div className="w-full py-2.5 bg-amber-50 text-amber-800 rounded-xl text-center font-bold flex items-center justify-center gap-1.5 border border-amber-200">
+                            <span className="w-2.5 h-2.5 rounded-full border-2 border-amber-600 border-t-transparent animate-spin" />
+                            <span className="text-xs">出纸吐单中...</span>
+                          </div>
+                        )}
+                        {job.status === 'completed' && (
+                          <div className="space-y-1 w-full">
+                            <div className="w-full py-1.5 bg-emerald-50 text-emerald-800 rounded-xl text-center font-bold flex items-center justify-center gap-1 border border-emerald-200 text-[11px]">
+                              <span>✓ 物理打单完毕</span>
+                            </div>
+                            {canManageJob(job) && (
+                              <button
+                                onClick={() => handleConfirmAndDeleteJob(job.id)}
+                                className="w-full py-2 bg-[#5C3A21] hover:bg-red-800 text-[#FAF9F5] rounded-xl transition font-black cursor-pointer text-xs border-none flex items-center justify-center gap-1 active:scale-95"
+                              >
+                                <span>🙋 我已取纸确认 (销单)</span>
+                              </button>
+                            )}
+                          </div>
+                        )}
+                        
+                        {/* Browser preview option */}
+                        {canManageJob(job) && (
+                          <button
+                            onClick={() => {
+                              setReceiptNumber(job.id);
+                              setLastPrintJobId(job.id);
+                              setReceiptType('dine-in');
+                              setShowReceipt(true);
+                            }}
+                            className="w-full py-1.5 bg-stone-50 hover:bg-stone-100 text-stone-600 rounded-xl transition text-[10px] cursor-pointer border border-stone-200 flex items-center justify-center gap-1"
+                          >
+                            <span>本地预览/复打</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+          </div>
+
+        </div>
+      )}
+
       {/* ==================== POPUP: PRINTABLE VINTAGE RECEIPT ==================== */}
       {showReceipt && (
         <div className="fixed inset-0 z-50 bg-[#2D1A12]/80 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
@@ -1591,24 +2324,20 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
             </div>
 
             {/* Delivery type selectors inside invoice popup! */}
-            <div className="my-4 flex items-center justify-between text-xs border border-[#A88C74]/30 rounded-xl p-1 bg-white">
-              <button 
-                onClick={() => setReceiptType('dine-in')}
-                className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition border-none cursor-pointer font-serif ${receiptType === 'dine-in' ? 'bg-[#5C3A21] text-white' : 'text-stone-500 bg-transparent'}`}
-              >
-                🍽️ 堂食品尝 (Dine In)
-              </button>
-              <button 
-                onClick={() => setReceiptType('take-away')}
-                className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition border-none cursor-pointer font-serif ${receiptType === 'take-away' ? 'bg-[#5C3A21] text-white' : 'text-stone-500 bg-transparent'}`}
-              >
-                🛍️ 外带打包 (Take Out)
-              </button>
+            <div className="my-4 p-2.5 bg-amber-50/40 border border-[#A88C74]/20 rounded-xl text-center">
+              <div className="text-[10px] font-bold text-amber-900 uppercase tracking-widest flex items-center justify-center gap-1">
+                <span>★</span>
+                <span>已成功支付 (Paid via {paymentMethod === 'wechat' ? '微信支付' : paymentMethod === 'alipay' ? '支付宝' : '会员卡余额'})</span>
+                <span>★</span>
+              </div>
+              <div className="text-xs font-serif font-black text-[#5C3A21] mt-1">
+                就餐形式: {receiptType === 'dine-in' ? '🍽️ 堂食现调 (Dine In)' : '🛍️ 外带打包 (Take Out)'}
+              </div>
             </div>
 
             {/* List items on invoice */}
             <div className="py-4 space-y-3 max-h-56 overflow-y-auto pr-1">
-              {wishlist.map((item, idx) => (
+              {(receiptItems.length > 0 ? receiptItems : wishlist).map((item, idx) => (
                 <div key={item.wishId} className="text-[11px] border-b border-stone-150 pb-2 space-y-1">
                   <div className="flex justify-between font-bold">
                     <span>{idx + 1}. {item.name.replace('★独家手作★', '').substring(0, 16)}</span>
@@ -1627,19 +2356,19 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
             <div className="border-t-2 border-dashed border-stone-300 pt-4 text-xs space-y-1.5">
               <div className="flex justify-between">
                 <span>品项共计:</span>
-                <span>{wishlist.length} 杯/件</span>
+                <span>{receiptItems.length > 0 ? receiptItems.length : wishlist.length} 杯/件</span>
               </div>
               <div className="flex justify-between text-stone-500">
                 <span>服务加水料费:</span>
                 <span>¥0.00 (免费高定)</span>
               </div>
-              <div className="flex justify-between text-stone-500">
-                <span>大堂席位费:</span>
-                <span>¥0.00 (免服务费)</span>
+              <div className="flex justify-between text-[#5C3A21] font-bold">
+                <span>支付方式:</span>
+                <span>{paymentMethod === 'wechat' ? '🟢 微信支付' : paymentMethod === 'alipay' ? '🔵 支付宝' : '🤎 会员卡支付'}</span>
               </div>
               <div className="flex justify-between font-bold text-sm text-[#5C3A21] border-t border-stone-200 pt-2 font-serif">
                 <span>实收总计:</span>
-                <span>¥ {totalWishlistPrice}</span>
+                <span>¥ {receiptItems.length > 0 ? receiptItems.reduce((sum, item) => sum + item.price, 0) : totalWishlistPrice}</span>
               </div>
             </div>
 
@@ -1657,43 +2386,45 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
             {/* Action buttons inside overlay */}
             <div className="flex gap-2.5 mt-6 border-t border-stone-200 pt-4">
               <button
-                onClick={() => { window.print(); }}
-                className="flex-1 py-2 bg-stone-150 hover:bg-stone-200 text-stone-800 text-[10px] font-bold rounded-lg transition border-none cursor-pointer flex items-center justify-center gap-1 font-serif"
+                onClick={handleCreateAndPrintJob}
+                className="flex-1 py-2 bg-[#5C3A21] hover:bg-[#452b19] text-white text-[10px] font-bold rounded-lg transition border-none cursor-pointer flex items-center justify-center gap-1 font-serif active:scale-95"
               >
                 <Printer className="w-3.5 h-3.5" />
-                打印风味单
+                共享打单并出纸
               </button>
               <button
                 onClick={() => {
-                  navigator.clipboard.writeText(JSON.stringify(wishlist, null, 2));
+                  navigator.clipboard.writeText(JSON.stringify(receiptItems.length > 0 ? receiptItems : wishlist, null, 2));
                   alert('配方代码已完美写入剪贴板，您可以一键分享给微信好友！');
                 }}
                 className="flex-1 py-2 bg-stone-150 hover:bg-stone-200 text-stone-850 text-[10px] font-bold rounded-lg transition border-none cursor-pointer flex items-center justify-center gap-1 font-serif"
               >
                 <Share2 className="w-3.5 h-3.5" />
-                复制配方码
+                复制配方代码
               </button>
             </div>
 
-            <div className="mt-3.5 pt-3.5 border-t border-stone-200">
-              <button
-                onClick={handleCheckout}
-                disabled={checkoutLoading}
-                className="w-full py-3 bg-[#5C3A21] hover:bg-amber-950 text-white font-bold text-xs rounded-xl shadow transition duration-200 border-none cursor-pointer flex items-center justify-center gap-1.5 font-serif active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {checkoutLoading ? (
-                  <span className="flex items-center gap-1">
-                    <svg className="animate-spin h-3.5 w-3.5 text-white" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                    </svg>
-                    正在打单结算中...
-                  </span>
-                ) : (
-                  <span>💳 立即结算下单并完成支付 (Pay Order)</span>
-                )}
-              </button>
-            </div>
+            {(() => {
+              const lastJob = printQueue.find(j => j.id === lastPrintJobId);
+              return (
+                <div className="mt-3.5 pt-3.5 border-t border-stone-200 space-y-2">
+                  {lastJob?.status === 'completed' && (
+                    <button
+                      onClick={() => handleConfirmAndDeleteJob(lastPrintJobId!)}
+                      className="w-full py-2.5 bg-red-800 hover:bg-red-950 text-white font-extrabold text-xs rounded-xl shadow transition duration-200 border-none cursor-pointer flex items-center justify-center gap-1.5 font-serif active:scale-95 mb-1"
+                    >
+                      <span>✓ 我已取纸无误 (确认自动销单) ➔</span>
+                    </button>
+                  )}
+                  <button
+                    onClick={() => setShowReceipt(false)}
+                    className="w-full py-3 bg-stone-200 hover:bg-stone-300 text-stone-800 font-extrabold text-xs rounded-xl shadow transition duration-200 border-none cursor-pointer flex items-center justify-center gap-1.5 font-serif"
+                  >
+                    <span>关闭</span>
+                  </button>
+                </div>
+              );
+            })()}
 
           </div>
         </div>
