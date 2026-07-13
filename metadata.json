@@ -1,6 +1,6 @@
 {
-  "name": "User Management System",
-  "description": "A full-stack B/S architecture user and administrator management system featuring registration, login, personal profiles, and full admin CRUD functionality.",
+  "name": "悠然咖啡客",
+  "description": "悠然咖啡客 (Yuran Coffee) - 精致手作拼配咖啡、私人风味特调及高定制心愿互通卡共享平台。",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

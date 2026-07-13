@@ -47,3 +47,22 @@ export interface Order {
   type: 'dine-in' | 'take-away';
 }
 
+export interface PrintJob {
+  id: string;
+  orderId?: string;
+  buyerName: string;
+  buyerUsername: string;
+  totalPrice: number;
+  items: {
+    name: string;
+    price: number;
+    size: string;
+    sugar: string;
+    milk: string;
+    temp: string;
+    notes?: string;
+  }[];
+  timestamp: string;
+  status: 'pending' | 'printing' | 'completed';
+}
+

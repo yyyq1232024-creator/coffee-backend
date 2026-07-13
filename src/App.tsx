@@ -10,6 +10,17 @@ import UserProfile from './components/UserProfile';
 import AdminPanel from './components/AdminPanel';
 import CoffeeShop from './components/CoffeeShop';
 
+const CINEMATIC_BACKGROUNDS = [
+  "https://images.unsplash.com/photo-1507133750040-4a8f57021571?auto=format&fit=crop&w=1920&q=80", // Elegant dark espresso extraction, steam/crema
+  "https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?auto=format&fit=crop&w=1920&q=80", // Modern cozy brutalist wood/concrete cafe
+  "https://images.unsplash.com/photo-1501339847302-ac426a4a7cbb?auto=format&fit=crop&w=1920&q=80", // Hand pouring filter/siphon coffee in high sun
+  "https://images.unsplash.com/photo-1497935586351-b67a49e012bf?auto=format&fit=crop&w=1920&q=80", // Minimalistic cup of hot coffee next to books, moody contrast shadows
+  "https://images.unsplash.com/photo-1442512595331-e89e73853f31?auto=format&fit=crop&w=1920&q=80", // Elegant bar with coffee grinders, glowing Edison bulbs, black metal
+  "https://images.unsplash.com/photo-1521017432531-fbd92d768814?auto=format&fit=crop&w=1920&q=80", // Beautiful latte art with cozy woolen sweater texture
+  "https://images.unsplash.com/photo-1511920170033-f8396924c348?auto=format&fit=crop&w=1920&q=80", // Beautiful minimalist cup of hot coffee, overhead steam
+  "https://images.unsplash.com/photo-1453614512568-c4024d13c247?auto=format&fit=crop&w=1920&q=80"  // Moody high-end artisan espresso bar countertop
+];
+
 export default function App() {
   // Navigation: 'shop' | 'login' | 'register' | 'profile' | 'admin'
   const [currentTab, setCurrentTab] = useState<'shop' | 'login' | 'register' | 'profile' | 'admin'>('shop');
@@ -17,6 +28,15 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [bgImage, setBgImage] = useState(CINEMATIC_BACKGROUNDS[0]);
+
+  // Choose a new random cinematic background whenever opening login or register
+  useEffect(() => {
+    if (currentTab === 'login' || currentTab === 'register') {
+      const index = Math.floor(Math.random() * CINEMATIC_BACKGROUNDS.length);
+      setBgImage(CINEMATIC_BACKGROUNDS[index]);
+    }
+  }, [currentTab]);
 
   // Auto check session from localStorage on startup
   useEffect(() => {
@@ -108,6 +128,52 @@ export default function App() {
     );
   }
 
+  // Full-screen cinematic layout for login and register pages (like codex.online)
+  if (currentTab === 'login' || currentTab === 'register') {
+    return (
+      <div 
+        className="min-h-screen w-full relative flex items-center justify-center p-4 bg-cover bg-center transition-all duration-700 ease-in-out font-sans select-none"
+        style={{ backgroundImage: `url(${bgImage})` }}
+      >
+        {/* Dark cinematic color overlay */}
+        <div className="absolute inset-0 bg-black/65 backdrop-blur-[2px] z-0" />
+
+        {/* Floating Notification */}
+        {notification && (
+          <div className={`fixed top-4 right-4 z-50 p-4 rounded-none shadow-2xl flex items-center gap-2.5 max-w-sm border transition-all duration-300 ${
+            notification.type === 'success' 
+              ? 'bg-[#141414] text-emerald-400 border-emerald-950/80' 
+              : 'bg-[#141414] text-red-400 border-red-950/80'
+          }`}>
+            {notification.type === 'success' ? (
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+            ) : (
+              <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse shrink-0" />
+            )}
+            <p className="text-xs font-mono tracking-widest uppercase">{notification.message}</p>
+          </div>
+        )}
+
+        <div className="relative z-10 w-full flex justify-center items-center">
+          {currentTab === 'login' && (
+            <LoginForm 
+              onLoginSuccess={handleLoginSuccess} 
+              onSwitchToRegister={() => setCurrentTab('register')} 
+              onBackToLobby={() => setCurrentTab('shop')}
+            />
+          )}
+          {currentTab === 'register' && (
+            <RegisterForm 
+              onRegisterSuccess={handleRegisterSuccess} 
+              onSwitchToLogin={() => setCurrentTab('login')} 
+              onBackToLobby={() => setCurrentTab('shop')}
+            />
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#FAF9F5] text-slate-800 flex flex-col font-sans">
       
@@ -127,110 +193,112 @@ export default function App() {
         </div>
       )}
 
-      {/* Top Header Navigation */}
-      <header className="bg-white/90 backdrop-blur-md sticky top-0 z-40 border-b border-stone-200/50 h-16 flex items-center shadow-sm">
-        <div className="max-w-6xl mx-auto w-full px-3 sm:px-4 flex items-center justify-between">
-          <div className="flex items-center gap-2 sm:gap-2.5">
-            <div className="w-8.5 h-8.5 sm:w-10 sm:h-10 bg-gradient-to-br from-amber-600 to-[#8B5A2B] text-white rounded-xl flex items-center justify-center shadow-md shrink-0">
-              <Coffee className="w-4.5 h-4.5 sm:w-5 sm:h-5 text-amber-50" />
-            </div>
-            <div className="flex flex-col justify-center">
-              <div className="flex items-center gap-1.5">
-                <span className="text-[13px] sm:text-base font-bold tracking-tight text-stone-800">
-                  悠然咖啡客
-                </span>
-                <span className="hidden xs:inline text-[13px] sm:text-base font-bold text-stone-500">
-                  · 用户中心
-                </span>
+      {/* Top Header Navigation - Only show when NOT in the main shop view */}
+      {currentTab !== 'shop' && (
+        <header className="bg-white/90 backdrop-blur-md sticky top-0 z-40 border-b border-stone-200/50 h-16 flex items-center shadow-sm">
+          <div className="max-w-6xl mx-auto w-full px-3 sm:px-4 flex items-center justify-between">
+            <div className="flex items-center gap-2 sm:gap-2.5">
+              <div className="w-8.5 h-8.5 sm:w-10 sm:h-10 bg-gradient-to-br from-amber-600 to-[#8B5A2B] text-white rounded-xl flex items-center justify-center shadow-md shrink-0">
+                <Coffee className="w-4.5 h-4.5 sm:w-5 sm:h-5 text-amber-50" />
               </div>
-              <p className="text-[8px] sm:text-[10px] text-amber-700/95 tracking-wider uppercase font-bold hidden sm:block">Leisurely User Control</p>
+              <div className="flex flex-col justify-center">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[13px] sm:text-base font-bold tracking-tight text-stone-800">
+                    悠然咖啡客
+                  </span>
+                  <span className="hidden xs:inline text-[13px] sm:text-base font-bold text-stone-500">
+                    · 用户中心
+                  </span>
+                </div>
+                <p className="text-[8px] sm:text-[10px] text-amber-700/95 tracking-wider uppercase font-bold hidden sm:block">Leisurely User Control</p>
+              </div>
             </div>
-          </div>
 
-          <nav className="flex items-center gap-1 bg-stone-100/80 p-0.5 rounded-full border border-stone-200/60 backdrop-blur-sm">
-            <button
-               onClick={() => setCurrentTab('shop')}
-              className={`px-2.5 py-1.5 sm:px-3.5 sm:py-2 rounded-full text-xs font-semibold transition-all duration-300 flex items-center gap-1 border-none cursor-pointer ${
-                currentTab === 'shop' 
-                  ? 'bg-gradient-to-r from-amber-600 to-[#8B5A2B] text-white shadow-sm border border-amber-700/10 scale-[1.02]' 
-                  : 'text-stone-600 hover:text-stone-900 hover:bg-stone-200/50'
-              }`}
-            >
-              <Home className="w-3.5 h-3.5 shrink-0" />
-              <span className="hidden xxs:inline">大堂</span>
-              <span className="hidden md:inline">返回大堂</span>
-            </button>
+            <nav className="flex items-center gap-1 bg-stone-100/80 p-0.5 rounded-full border border-stone-200/60 backdrop-blur-sm">
+              <button
+                 onClick={() => setCurrentTab('shop')}
+                className={`px-2.5 py-1.5 sm:px-3.5 sm:py-2 rounded-full text-xs font-semibold transition-all duration-300 flex items-center gap-1 border-none cursor-pointer ${
+                  (currentTab as string) === 'shop' 
+                    ? 'bg-gradient-to-r from-amber-600 to-[#8B5A2B] text-white shadow-sm border border-amber-700/10 scale-[1.02]' 
+                    : 'text-stone-600 hover:text-stone-900 hover:bg-stone-200/50'
+                }`}
+              >
+                <Home className="w-3.5 h-3.5 shrink-0" />
+                <span className="hidden xxs:inline">大堂</span>
+                <span className="hidden md:inline">返回大堂</span>
+              </button>
 
-            <div className="h-4 w-[1px] bg-stone-300/60 mx-0.5 sm:mx-1" />
+              <div className="h-4 w-[1px] bg-stone-300/60 mx-0.5 sm:mx-1" />
 
-            {token && user ? (
-              <div className="flex items-center gap-1">
-                {user.role === 'admin' && (
+              {token && user ? (
+                <div className="flex items-center gap-1">
+                  {user.role === 'admin' && (
+                    <button
+                      onClick={() => setCurrentTab('admin')}
+                      className={`px-2.5 py-1.5 sm:px-3.5 sm:py-2 rounded-full text-xs font-semibold transition-all duration-300 flex items-center gap-1 border-none cursor-pointer ${
+                        currentTab === 'admin' 
+                          ? 'bg-gradient-to-r from-amber-600 to-[#8B5A2B] text-white shadow-sm border border-amber-700/10 scale-[1.02]' 
+                          : 'text-stone-600 hover:text-stone-900 hover:bg-stone-200/50'
+                      }`}
+                    >
+                      <Shield className="w-3.5 h-3.5 shrink-0" />
+                      <span>后台</span>
+                      <span className="hidden md:inline">管理</span>
+                    </button>
+                  )}
+                  
                   <button
-                    onClick={() => setCurrentTab('admin')}
+                    onClick={() => setCurrentTab('profile')}
                     className={`px-2.5 py-1.5 sm:px-3.5 sm:py-2 rounded-full text-xs font-semibold transition-all duration-300 flex items-center gap-1 border-none cursor-pointer ${
-                      currentTab === 'admin' 
+                      currentTab === 'profile' 
                         ? 'bg-gradient-to-r from-amber-600 to-[#8B5A2B] text-white shadow-sm border border-amber-700/10 scale-[1.02]' 
                         : 'text-stone-600 hover:text-stone-900 hover:bg-stone-200/50'
                     }`}
                   >
-                    <Shield className="w-3.5 h-3.5 shrink-0" />
-                    <span>后台</span>
-                    <span className="hidden md:inline">管理</span>
+                    <UserIcon className="w-3.5 h-3.5 shrink-0" />
+                    <span>个人</span>
+                    <span className="hidden md:inline">中心</span>
                   </button>
-                )}
-                
-                <button
-                  onClick={() => setCurrentTab('profile')}
-                  className={`px-2.5 py-1.5 sm:px-3.5 sm:py-2 rounded-full text-xs font-semibold transition-all duration-300 flex items-center gap-1 border-none cursor-pointer ${
-                    currentTab === 'profile' 
-                      ? 'bg-gradient-to-r from-amber-600 to-[#8B5A2B] text-white shadow-sm border border-amber-700/10 scale-[1.02]' 
-                      : 'text-stone-600 hover:text-stone-900 hover:bg-stone-200/50'
-                  }`}
-                >
-                  <UserIcon className="w-3.5 h-3.5 shrink-0" />
-                  <span>个人</span>
-                  <span className="hidden md:inline">中心</span>
-                </button>
 
-                <div className="h-4 w-[1px] bg-stone-300/60 mx-0.5 sm:mx-1" />
+                  <div className="h-4 w-[1px] bg-stone-300/60 mx-0.5 sm:mx-1" />
 
-                <button
-                  onClick={handleLogout}
-                  className="px-2.5 py-1.5 sm:px-3.5 sm:py-2 hover:bg-rose-50 text-rose-600 rounded-full text-xs font-semibold transition-all border-none cursor-pointer flex items-center gap-1"
-                  title="注销登录"
-                >
-                  <LogOut className="w-3.5 h-3.5 shrink-0 text-rose-600" />
-                  <span className="hidden xs:inline">退出</span>
-                </button>
-              </div>
-            ) : (
-              <div className="flex items-center gap-0.5">
-                <button
-                  onClick={() => setCurrentTab('login')}
-                  className={`px-2.5 py-1.5 sm:px-3.5 sm:py-2 rounded-full text-xs font-semibold transition-all duration-300 border-none cursor-pointer ${
-                    currentTab === 'login' 
-                      ? 'bg-gradient-to-r from-amber-600 to-[#8B5A2B] text-white shadow-sm border border-amber-700/10 scale-[1.02]' 
-                      : 'text-stone-600 hover:text-stone-900 hover:bg-stone-200/50'
-                  }`}
-                >
-                  <span className="hidden xxs:inline">会员</span>登录
-                </button>
-                <button
-                  onClick={() => setCurrentTab('register')}
-                  className={`px-2.5 py-1.5 sm:px-3.5 sm:py-2 rounded-full text-xs font-semibold transition-all duration-300 border-none cursor-pointer relative z-10 ${
-                    currentTab === 'register' 
-                      ? 'bg-gradient-to-r from-amber-600 to-[#8B5A2B] text-white shadow-sm border border-amber-700/10 scale-[1.02]' 
-                      : 'text-stone-600 hover:text-stone-900 hover:bg-stone-200/50'
-                  }`}
-                >
-                  <span className="hidden xxs:inline">会员</span>注册
-                </button>
-              </div>
-            )}
-          </nav>
-        </div>
-      </header>
+                  <button
+                    onClick={handleLogout}
+                    className="px-2.5 py-1.5 sm:px-3.5 sm:py-2 hover:bg-rose-50 text-rose-600 rounded-full text-xs font-semibold transition-all border-none cursor-pointer flex items-center gap-1"
+                    title="注销登录"
+                  >
+                    <LogOut className="w-3.5 h-3.5 shrink-0 text-rose-600" />
+                    <span className="hidden xs:inline">退出</span>
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-0.5">
+                  <button
+                    onClick={() => setCurrentTab('login')}
+                    className={`px-2.5 py-1.5 sm:px-3.5 sm:py-2 rounded-full text-xs font-semibold transition-all duration-300 border-none cursor-pointer ${
+                      (currentTab as string) === 'login' 
+                        ? 'bg-gradient-to-r from-amber-600 to-[#8B5A2B] text-white shadow-sm border border-amber-700/10 scale-[1.02]' 
+                        : 'text-stone-600 hover:text-stone-900 hover:bg-stone-200/50'
+                    }`}
+                  >
+                    <span className="hidden xxs:inline">会员</span>登录
+                  </button>
+                  <button
+                    onClick={() => setCurrentTab('register')}
+                    className={`px-2.5 py-1.5 sm:px-3.5 sm:py-2 rounded-full text-xs font-semibold transition-all duration-300 border-none cursor-pointer relative z-10 ${
+                      (currentTab as string) === 'register' 
+                        ? 'bg-gradient-to-r from-amber-600 to-[#8B5A2B] text-white shadow-sm border border-amber-700/10 scale-[1.02]' 
+                        : 'text-stone-600 hover:text-stone-900 hover:bg-stone-200/50'
+                    }`}
+                  >
+                    <span className="hidden xxs:inline">会员</span>注册
+                  </button>
+                </div>
+              )}
+            </nav>
+          </div>
+        </header>
+      )}
 
       {/* Main Content Area */}
       <main className={`flex-1 w-full flex flex-col justify-center ${currentTab === 'shop' ? 'py-0 px-0' : 'py-12 px-4 max-w-6xl mx-auto'}`}>
@@ -246,22 +314,7 @@ export default function App() {
           />
         )}
 
-        {currentTab !== 'shop' && (!token || !user ? (
-          <div className="flex justify-center items-center">
-            {currentTab === 'login' && (
-              <LoginForm 
-                onLoginSuccess={handleLoginSuccess} 
-                onSwitchToRegister={() => setCurrentTab('register')} 
-              />
-            )}
-            {currentTab === 'register' && (
-              <RegisterForm 
-                onRegisterSuccess={handleRegisterSuccess} 
-                onSwitchToLogin={() => setCurrentTab('login')} 
-              />
-            )}
-          </div>
-        ) : (
+        {currentTab !== 'shop' && token && user && (
           <div className="animate-fadeIn">
             {currentTab === 'profile' && (
               <div className="space-y-4">
@@ -290,11 +343,11 @@ export default function App() {
               </div>
             )}
           </div>
-        ))}
+        )}
       </main>
 
       {/* Footer */}
-      <footer className="bg-stone-100 text-stone-500 py-6 px-4 border-t border-stone-200 text-xs">
+      <footer className="bg-stone-100 text-stone-500 py-6 px-4 border-t border-stone-200 text-xs mt-auto">
         <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 text-center sm:text-left">
           <div>
             <span className="font-semibold text-stone-700">悠然咖啡客</span> · 慢煮光阴，手作纯真

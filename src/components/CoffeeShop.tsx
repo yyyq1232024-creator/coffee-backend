@@ -3,7 +3,45 @@ import {
   Coffee, Heart, Trash2, Plus, Sparkles, Check, 
   MapPin, Phone, Mail, FileText, Send, Share2, Printer, X, ChevronDown
 } from 'lucide-react';
+import { motion } from 'motion/react';
 import { User as UserType } from '../types';
+
+const storyContainerVariants = {
+  hidden: { opacity: 0 },
+  visible: {
+    opacity: 1,
+    transition: {
+      staggerChildren: 0.12,
+      delayChildren: 0.05,
+    }
+  }
+};
+
+const slideUpVariants = {
+  hidden: { opacity: 0, y: 35 },
+  visible: { 
+    opacity: 1, 
+    y: 0,
+    transition: { 
+      type: "spring" as const, 
+      stiffness: 65, 
+      damping: 15
+    }
+  }
+};
+
+const slideDownVariants = {
+  hidden: { opacity: 0, y: -35 },
+  visible: { 
+    opacity: 1, 
+    y: 0,
+    transition: { 
+      type: "spring" as const, 
+      stiffness: 65, 
+      damping: 15
+    }
+  }
+};
 
 interface CoffeeShopProps {
   user: UserType | null;
@@ -31,6 +69,27 @@ export interface WishlistItem {
 export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateToRegister, onLogout }: CoffeeShopProps) {
   // Navigation tabs: 'home' | 'menu' | 'builder' | 'wishlist' | 'about' | 'contact' | 'printer'
   const [activeTab, setActiveTab] = useState<'home' | 'menu' | 'builder' | 'wishlist' | 'about' | 'contact' | 'printer'>('home');
+  const [showLoginModal, setShowLoginModal] = useState(false);
+  const [openDropdown, setOpenDropdown] = useState<'order' | 'about' | 'member' | null>(null);
+
+  const handleTabClick = (tab: 'home' | 'menu' | 'builder' | 'wishlist' | 'about' | 'contact' | 'printer') => {
+    setOpenDropdown(null);
+    setActiveTab(tab);
+  };
+
+  // Close dropdowns when clicking outside
+  useEffect(() => {
+    const handleOutsideClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest('.dropdown-container')) {
+        setOpenDropdown(null);
+      }
+    };
+    document.addEventListener('click', handleOutsideClick);
+    return () => {
+      document.removeEventListener('click', handleOutsideClick);
+    };
+  }, []);
   const [menuFilter, setMenuFilter] = useState<'all' | 'coffee' | 'tea' | 'dessert'>('all');
   const [contactSuccess, setContactSuccess] = useState(false);
   const [wishlist, setWishlist] = useState<WishlistItem[]>([]);
@@ -47,6 +106,10 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
   const [lastPrintJobId, setLastPrintJobId] = useState<string | null>(null);
 
   const handleCheckout = async () => {
+    if (!user) {
+      setShowLoginModal(true);
+      return;
+    }
     if (wishlist.length === 0) return;
     setCheckoutLoading(true);
     try {
@@ -522,6 +585,10 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
 
   // Add customized menu item to wishlist
   const handleAddCustomToWishlist = (item: typeof menuItems[0]) => {
+    if (!user) {
+      setShowLoginModal(true);
+      return;
+    }
     const wishId = 'wish-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7);
     
     // Calculate custom price
@@ -554,6 +621,10 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
 
   // Quick default add back-up
   const handleAddToWishlistDefault = (item: typeof menuItems[0]) => {
+    if (!user) {
+      setShowLoginModal(true);
+      return;
+    }
     const wishId = 'wish-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7);
     const newItem: WishlistItem = {
       wishId,
@@ -578,6 +649,10 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
 
   // Add custom builders to Wishlist
   const handleAddCustomCupToWishlist = () => {
+    if (!user) {
+      setShowLoginModal(true);
+      return;
+    }
     if (!customCupName.trim()) {
       alert('请为您的心意特调定义一个灵动学名吧！');
       return;
@@ -653,402 +728,366 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
 
   return (
     <div id="coffee-shop-container" className="w-full">
-      
-      {/* ⛲ SCREEN A HERO - RENDERED FULL WIDTH AT THE TOP IF ON HOME TAB */}
-      {activeTab === 'home' && (
-        <div 
-          id="visual-landing-hero"
-          className="relative text-[#FAF9F5] min-h-[calc(100vh-80px)] w-full flex flex-col justify-center items-center text-center shadow-2xl p-6 md:p-12 border-none bg-cover bg-center bg-no-repeat"
-          style={{
-            backgroundImage: "linear-gradient(to bottom, rgba(15, 8, 4, 0.78), rgba(45, 26, 18, 0.92)), url('https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?w=1600')",
-          }}
-        >
-          <div className="absolute inset-0 bg-[radial-gradient(#8B5A2B_1px,transparent_1.5px)] [background-size:16px_16px] opacity-15 pointer-events-none" />
 
-          <div className="relative z-10 max-w-4xl space-y-6 px-4">
-            {/* Welcome text (small) */}
-            <span className="text-[#C49A6C] text-xs font-bold tracking-[0.35em] uppercase block font-serif">
-              ★ 𝔏𝔢𝔦𝔰𝔲𝔯𝔢𝔩𝔶 𝔖𝔭𝔞𝔠𝔢 𝔒𝔣 𝔖𝔬𝔲𝔩 ★
-            </span>
-            
-            {/* Main title (large) */}
-            <h1 className="text-4xl md:text-6xl font-extrabold leading-tight text-[#FAF9F5] font-serif tracking-tight border-b border-white/10 pb-6 max-w-2xl mx-auto drop-shadow-sm">
-              慢煮光阴 · 手作纯真一杯
-            </h1>
-            
-            {/* Subtitle */}
-            <p className="text-stone-300 text-xs md:text-sm leading-relaxed max-w-2xl font-light mx-auto">
-              在这里，没有冰冷的工业化量产，亦没有低质香精。我们选用极受推崇的耶加雪菲瑰夏原豆，历经高级拼配，将温度与手作质感完整交还于您的指尖。
-            </p>
-
-            {/* Two CTA Buttons */}
-            <div className="flex flex-wrap gap-4 justify-center pt-4">
-              <button 
-                onClick={() => setActiveTab('menu')}
-                className="px-7 py-3.5 bg-gradient-to-r from-amber-500 to-amber-700 hover:from-amber-600 hover:to-amber-800 text-[#FAF9F5] font-bold text-xs rounded-full shadow-lg shadow-amber-950/50 transition duration-300 border border-amber-400/20 cursor-pointer font-serif transform hover:scale-[1.04] active:scale-[0.98]"
-              >
-                特色手作茶点单
-              </button>
-              <button 
-                onClick={() => setActiveTab('builder')}
-                className="px-7 py-3.5 bg-white/10 hover:bg-white/20 text-[#FAF9F5] font-bold text-xs rounded-full shadow-md transition duration-300 border border-white/15 cursor-pointer font-serif transform hover:scale-[1.04] active:scale-[0.98] backdrop-blur-md"
-              >
-                去特调创意定制
-              </button>
+      {/* Premium Minimal Header with Dropdowns */}
+      <div className="max-w-6xl mx-auto px-4 pt-8 pb-2 w-full">
+        <div id="cozy-premium-header" className="flex flex-col sm:flex-row items-center justify-between border-b border-[#A88C74]/20 pb-6 mb-8 gap-4 relative">
+          
+          {/* Left Side: Editorial Brand Logo */}
+          <div 
+            onClick={() => handleTabClick('home')} 
+            className="flex items-center gap-3 cursor-pointer select-none group transition"
+          >
+            <div className="w-10 h-10 bg-[#5C3A21] rounded-full flex items-center justify-center text-white shadow-sm group-hover:scale-105 transition-transform duration-300">
+              <Coffee className="w-5 h-5 text-stone-100" />
+            </div>
+            <div>
+              <h1 className="text-lg font-bold font-serif text-[#5C3A21] tracking-wide group-hover:text-[#8B5A2B] transition-colors">
+                悠然咖啡客
+              </h1>
+              <p className="text-[9px] text-stone-500 font-mono tracking-widest uppercase">
+                Yuran Coffee House
+              </p>
             </div>
           </div>
 
-          {/* Scroll Down Indicator Arrow */}
-          <div 
-            className="absolute bottom-8 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1.5 animate-bounce text-[#C49A6C] opacity-80 hover:opacity-100 transition cursor-pointer select-none"
-            onClick={() => {
-              const target = document.getElementById('cozy-announcement-header');
-              if (target) {
-                target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-              }
-            }}
-          >
-            <span className="text-[9px] tracking-[0.25em] uppercase font-mono font-bold text-[#A88C74]">SCROLL DOWN</span>
-            <ChevronDown className="w-5 h-5 text-[#C49A6C]" />
+          {/* Right Side: Three Dropdown Menus */}
+          <div className="flex items-center gap-1 sm:gap-2.5 relative z-50 text-stone-300">
+            
+            {/* Dropdown 1: PRODUCTS */}
+            <div className="relative dropdown-container flex items-center">
+              <button 
+                onClick={() => setOpenDropdown(openDropdown === 'order' ? null : 'order')}
+                className={`px-3 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-bold tracking-widest transition-all flex items-center gap-1 bg-transparent cursor-pointer font-serif ${
+                  ['menu', 'builder', 'printer'].includes(activeTab)
+                    ? 'text-[#8B5A2B] font-extrabold bg-[#EADECE]/30' 
+                    : 'text-stone-600 hover:text-[#5C3A21] hover:bg-stone-100/50'
+                }`}
+              >
+                PRODUCTS
+                <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${openDropdown === 'order' ? 'rotate-180' : ''}`} />
+              </button>
+
+              {openDropdown === 'order' && (
+                <div className="absolute right-0 sm:left-0 top-full mt-1.5 w-48 bg-white border border-[#A88C74]/25 rounded-2xl shadow-xl py-2.5 z-50 animate-fadeIn text-[#5C3A21]">
+                  <button 
+                    onClick={() => handleTabClick('menu')}
+                    className={`w-full text-left px-4 py-2 text-xs font-serif font-bold hover:bg-[#EADECE]/30 transition flex items-center justify-between ${activeTab === 'menu' ? 'text-[#8B5A2B] bg-[#EADECE]/15' : ''}`}
+                  >
+                    <span>极雅手作茶点</span>
+                  </button>
+                  <button 
+                    onClick={() => handleTabClick('builder')}
+                    className={`w-full text-left px-4 py-2 text-xs font-serif font-bold hover:bg-[#EADECE]/30 transition flex items-center justify-between ${activeTab === 'builder' ? 'text-[#8B5A2B] bg-[#EADECE]/15' : ''}`}
+                  >
+                    <span>私人特调工坊</span>
+                  </button>
+                  <button 
+                    onClick={() => handleTabClick('printer')}
+                    className={`w-full text-left px-4 py-2 text-xs font-serif font-bold hover:bg-[#EADECE]/30 transition flex items-center justify-between ${activeTab === 'printer' ? 'text-[#8B5A2B] bg-[#EADECE]/15' : ''}`}
+                  >
+                    <span>共享热敏打单</span>
+                    {printQueue.filter(j => j.status === 'pending').length > 0 && (
+                      <span className="bg-amber-700 text-white font-mono text-[9px] px-1.5 py-0.5 rounded-full font-bold">
+                        {printQueue.filter(j => j.status === 'pending').length}
+                      </span>
+                    )}
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <span className="text-stone-300/60 font-light select-none text-xs sm:text-sm">|</span>
+
+            {/* Dropdown 2: SUPPORT */}
+            <div className="relative dropdown-container flex items-center">
+              <button 
+                onClick={() => setOpenDropdown(openDropdown === 'about' ? null : 'about')}
+                className={`px-3 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-bold tracking-widest transition-all flex items-center gap-1 bg-transparent cursor-pointer font-serif ${
+                  ['home', 'about', 'contact'].includes(activeTab) && !['menu', 'builder', 'printer', 'wishlist'].includes(activeTab)
+                    ? 'text-[#8B5A2B] font-extrabold bg-[#EADECE]/30' 
+                    : 'text-stone-600 hover:text-[#5C3A21] hover:bg-stone-100/50'
+                }`}
+              >
+                SUPPORT
+                <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${openDropdown === 'about' ? 'rotate-180' : ''}`} />
+              </button>
+
+              {openDropdown === 'about' && (
+                <div className="absolute right-1/2 translate-x-1/2 sm:translate-x-0 sm:left-0 top-full mt-1.5 w-48 bg-white border border-[#A88C74]/25 rounded-2xl shadow-xl py-2.5 z-50 animate-fadeIn text-[#5C3A21]">
+                  <button 
+                    onClick={() => handleTabClick('home')}
+                    className={`w-full text-left px-4 py-2 text-xs font-serif font-bold hover:bg-[#EADECE]/30 transition ${activeTab === 'home' ? 'text-[#8B5A2B] bg-[#EADECE]/15' : ''}`}
+                  >
+                    悠然大堂
+                  </button>
+                  <button 
+                    onClick={() => handleTabClick('about')}
+                    className={`w-full text-left px-4 py-2 text-xs font-serif font-bold hover:bg-[#EADECE]/30 transition ${activeTab === 'about' ? 'text-[#8B5A2B] bg-[#EADECE]/15' : ''}`}
+                  >
+                    匠人灵感手记
+                  </button>
+                  <button 
+                    onClick={() => handleTabClick('contact')}
+                    className={`w-full text-left px-4 py-2 text-xs font-serif font-bold hover:bg-[#EADECE]/30 transition ${activeTab === 'contact' ? 'text-[#8B5A2B] bg-[#EADECE]/15' : ''}`}
+                  >
+                    寻访店铺联络
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <span className="text-stone-300/60 font-light select-none text-xs sm:text-sm">|</span>
+
+            {/* Dropdown 3: SIGN IN */}
+            <div className="relative dropdown-container flex items-center">
+              <button 
+                onClick={() => setOpenDropdown(openDropdown === 'member' ? null : 'member')}
+                className={`px-3 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-bold tracking-widest transition-all flex items-center gap-1 bg-transparent cursor-pointer font-serif relative ${
+                  activeTab === 'wishlist' || user 
+                    ? 'text-[#8B5A2B] font-extrabold bg-[#EADECE]/30' 
+                    : 'text-stone-600 hover:text-[#5C3A21] hover:bg-stone-100/50'
+                }`}
+              >
+                {user ? `MEMBER: ${user.name}` : 'SIGN IN'}
+                {wishlist.length > 0 && (
+                  <span className="absolute -top-1 -right-1 bg-red-600 text-white font-mono text-[9px] w-4.5 h-4.5 rounded-full flex items-center justify-center font-bold ring-2 ring-white animate-pulse">
+                    {wishlist.length}
+                  </span>
+                )}
+                <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${openDropdown === 'member' ? 'rotate-180' : ''}`} />
+              </button>
+
+              {openDropdown === 'member' && (
+                <div className="absolute right-0 top-full mt-1.5 w-52 bg-white border border-[#A88C74]/25 rounded-2xl shadow-xl py-2.5 z-50 animate-fadeIn text-[#5C3A21]">
+                  {user ? (
+                    <>
+                      <div className="px-4 py-2 border-b border-stone-100 mb-1.5">
+                        <p className="text-[10px] text-stone-400 font-mono">CONNECTED MEMBER</p>
+                        <p className="text-xs font-serif font-black truncate text-[#5C3A21]">{user.name}</p>
+                        <p className="text-[9px] text-[#A88C74] truncate">@{user.username}</p>
+                      </div>
+                      
+                      <button 
+                        onClick={() => handleTabClick('wishlist')}
+                        className={`w-full text-left px-4 py-2 text-xs font-serif font-bold hover:bg-[#EADECE]/30 transition flex items-center justify-between ${activeTab === 'wishlist' ? 'text-[#8B5A2B] bg-[#EADECE]/15' : ''}`}
+                      >
+                        <span>心愿高定特配簿</span>
+                        {wishlist.length > 0 && (
+                          <span className="bg-red-600 text-white font-mono text-[9px] px-1.5 py-0.5 rounded-full font-bold">
+                            {wishlist.length}
+                          </span>
+                        )}
+                      </button>
+
+                      <div className="border-t border-stone-100 mt-1.5 pt-1.5">
+                        <button 
+                          onClick={() => {
+                            setOpenDropdown(null);
+                            if (onLogout) onLogout();
+                          }}
+                          className="w-full text-left px-4 py-2 text-xs font-serif font-bold text-rose-700 hover:bg-rose-50 transition flex items-center gap-1.5"
+                        >
+                          安全注销退出
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="px-4 py-2 border-b border-stone-100 mb-1.5">
+                        <p className="text-[10px] text-stone-400 font-mono">GUEST ACCOUNT</p>
+                        <p className="text-xs font-serif font-black text-amber-900">自在品鉴游客</p>
+                      </div>
+                      
+                      <button 
+                        onClick={() => {
+                          setOpenDropdown(null);
+                          onNavigateToLogin();
+                        }}
+                        className="w-full text-left px-4 py-2 text-xs font-serif font-bold hover:bg-[#EADECE]/30 transition flex items-center gap-1.5 text-[#8B5A2B]"
+                      >
+                        授权会员登录
+                      </button>
+
+                      <button 
+                        onClick={() => {
+                          setOpenDropdown(null);
+                          onNavigateToRegister();
+                        }}
+                        className="w-full text-left px-4 py-2 text-xs font-serif font-bold hover:bg-[#EADECE]/30 transition flex items-center gap-1.5"
+                      >
+                        极速注册新会员
+                      </button>
+
+                      <button 
+                        onClick={() => handleTabClick('wishlist')}
+                        className={`w-full text-left px-4 py-2 text-xs font-serif font-bold hover:bg-[#EADECE]/30 transition flex items-center justify-between ${activeTab === 'wishlist' ? 'text-[#8B5A2B]' : ''}`}
+                      >
+                        <span>心愿高定特配簿</span>
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+
           </div>
         </div>
-      )}
+      </div>
 
-      {/* Main Grid Centered Content Wrapper (Rest of the application) */}
-      <div className="max-w-6xl mx-auto px-4 py-12 w-full space-y-12">
-        
-        {/* Editorial Announcement Badge Bar */}
-        <div id="cozy-announcement-header" className="flex flex-col md:flex-row items-center justify-between bg-[#EADECE]/40 border-y border-[#A88C74]/20 py-4 px-6 rounded-2xl mb-10 gap-4">
-          <div className="flex items-center gap-2.5 text-xs text-[#5C3A21] tracking-wide font-medium">
-            <span className="flex h-2 w-2 rounded-full bg-amber-700 animate-pulse shrink-0" />
-            {user ? (
-              <span className="flex items-center gap-2 flex-wrap">
-                欢迎常驻尊贵会员 <strong className="font-extrabold">{user.name}</strong> (@{user.username})！您的专属特权已激活，当前心愿特配卡片已同步至云端数据库映射。
-                <a 
-                  href={`/users/${user.username}.html`} 
-                  target="_blank" 
-                  rel="noopener noreferrer" 
-                  className="ml-2 px-2.5 py-1 bg-amber-50 hover:bg-amber-100 text-[#5C3A21] font-extrabold border border-amber-200/60 rounded-lg text-[10px] transition cursor-pointer flex items-center gap-1 no-underline"
+      {/* Conditional Active Tab Content rendering */}
+      {activeTab === 'home' && (
+        <div id="cozy-home-screen" className="w-full flex flex-col relative animate-fadeIn select-none bg-black">
+          {[
+            {
+              id: 1,
+              title: "ORIGIN",
+              category: "01 / DIRECT TRADE BEANS",
+              subtitle: "甄选单源原产庄园豆",
+              desc: "每一粒生豆均产自海拔1800米以上的优质原产地遮阴山物候区。我们执着于黄金产地的耶加雪菲与顶级瑰夏拼配，以物理锁水工艺锁闭更丰富、深邃的柑橘调与红茶般清澈的花果香气，不添加任何人工香精，还原手作纯真。",
+              img: "https://images.unsplash.com/photo-1447933601403-0c6688de566e?auto=format&fit=crop&w=1200&q=80"
+            },
+            {
+              id: 2,
+              title: "BREW",
+              category: "02 / ARTISANAL EXTRACTION",
+              subtitle: "慢煮光阴，星级匠心执壶",
+              desc: "这里的冲滤拒绝任何冰冷、千篇一律的胶囊机或快餐自动化量产。我们经验丰富的星级咖啡品鉴师将根据当日的气温、湿度和空气含水率，精密调节水温、水流注入速度及闷蒸秒数，让每一毫升的醇香滴落都成为艺术品。",
+              img: "https://images.unsplash.com/photo-1514432324607-a09d9b4aefdd?auto=format&fit=crop&w=1200&q=80"
+            },
+            {
+              id: 3,
+              title: "SPACE",
+              category: "03 / COZY JAZZ RETREAT",
+              subtitle: "极简木构声影与黑胶留白",
+              desc: "古典中式传统木构与冷峻现代的水泥光影在这里奇妙汇聚。摒弃一切浮躁杂音，只有静静转动的复古黑胶唱机、轻快舒缓的轻爵士乐、和满屋四溢的慢煮醇香。在这里，您可以安全脱离喧嚣，寻一处心灵的疗愈避难所。",
+              img: "https://images.unsplash.com/photo-1498804103079-a6351b050096?auto=format&fit=crop&w=1200&q=80"
+            },
+            {
+              id: 4,
+              title: "MEMORIES",
+              category: "04 / TACTILE EXPERIENCE",
+              subtitle: "纸短情长，共享打单仪式",
+              desc: "我们坚信具有温度的手作不仅应存在于味蕾，更应在触觉上留下印记。在这里，您的专属定制特调配方均可极速同步到我们前台的共享热敏打印机。出单的那一刻，带给您带着温热墨香的精美小票。让美好的回忆被握在指尖。",
+              img: "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&w=1200&q=80"
+            }
+          ].map((sec, idx) => (
+            <div key={sec.id} className="relative w-full flex flex-col md:flex-row md:min-h-screen">
+              {/* Left Column: Sticky Image (Story ID badge removed per user request) */}
+              <div className="w-full md:w-1/2 h-[60vh] md:h-screen md:sticky md:top-0 z-10 overflow-hidden">
+                <img 
+                  src={sec.img} 
+                  alt={sec.title} 
+                  className="w-full h-full object-cover filter brightness-[0.82] transition-transform duration-700 hover:scale-105" 
+                  referrerPolicy="no-referrer"
+                />
+              </div>
+
+              {/* Right Column: Narrative with custom scroll animations */}
+              <div className="w-full md:w-1/2 min-h-[50vh] md:min-h-screen flex flex-col justify-center p-8 md:p-16 lg:p-24 bg-black text-[#FAF9F5] border-t md:border-t-0 md:border-l border-stone-900">
+                <motion.div 
+                  initial="hidden"
+                  whileInView="visible"
+                  viewport={{ once: false, amount: 0.15 }}
+                  variants={storyContainerVariants}
+                  className="max-w-md space-y-6"
                 >
-                  🔗 伪静态档案卡
-                </a>
-                {onLogout && (
-                  <button 
-                    onClick={onLogout} 
-                    className="ml-2 px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 font-extrabold border border-rose-200/50 rounded-lg text-[10px] transition cursor-pointer"
+                  <motion.span 
+                    variants={idx % 2 === 0 ? slideUpVariants : slideDownVariants}
+                    className="text-[#C49A6C] font-mono text-[10px] tracking-[0.3em] uppercase block"
                   >
-                    🚪 安全注销退出
+                    {sec.category}
+                  </motion.span>
+                  <motion.h2 
+                    variants={idx % 2 === 0 ? slideUpVariants : slideDownVariants}
+                    className="text-5xl md:text-7xl font-black tracking-widest text-white leading-none font-sans uppercase"
+                  >
+                    {sec.title}.
+                  </motion.h2>
+                  <motion.div 
+                    variants={idx % 2 === 0 ? slideUpVariants : slideDownVariants}
+                    className="h-[1px] w-12 bg-[#C49A6C]/40" 
+                  />
+                  <motion.h3 
+                    variants={idx % 2 === 0 ? slideUpVariants : slideDownVariants}
+                    className="text-lg md:text-xl font-bold text-stone-200 tracking-wide font-serif"
+                  >
+                    {sec.subtitle}
+                  </motion.h3>
+                  <motion.p 
+                    variants={idx % 2 === 0 ? slideUpVariants : slideDownVariants}
+                    className="text-stone-400 text-xs md:text-sm leading-relaxed tracking-wide font-light"
+                  >
+                    {sec.desc}
+                  </motion.p>
+                  
+                  {sec.id === 2 && (
+                    <motion.div 
+                      variants={idx % 2 === 0 ? slideUpVariants : slideDownVariants}
+                      className="pt-4"
+                    >
+                      <button 
+                        onClick={() => handleTabClick('menu')}
+                        className="px-6 py-3 bg-[#FAF9F5]/10 hover:bg-[#FAF9F5]/25 text-[#FAF9F5] text-[10px] tracking-widest font-extrabold uppercase border border-white/20 transition cursor-pointer active:scale-95"
+                      >
+                        品鉴手作点心单 📖
+                      </button>
+                    </motion.div>
+                  )}
+                  {sec.id === 4 && (
+                    <motion.div 
+                      variants={idx % 2 === 0 ? slideUpVariants : slideDownVariants}
+                      className="pt-4"
+                    >
+                      <button 
+                        onClick={() => handleTabClick('printer')}
+                        className="px-6 py-3 bg-[#FAF9F5]/10 hover:bg-[#FAF9F5]/25 text-[#FAF9F5] text-[10px] tracking-widest font-extrabold uppercase border border-white/20 transition cursor-pointer active:scale-95"
+                      >
+                        探访共享打单处 🖨️
+                      </button>
+                    </motion.div>
+                  )}
+                </motion.div>
+              </div>
+            </div>
+          ))}
+
+          {/* Persistent sync locking CTA bottom banner */}
+          <div className="w-full bg-[#111] py-20 px-6 border-t border-stone-950 text-center text-[#FAF9F5]">
+            <div className="max-w-2xl mx-auto space-y-5">
+              <span className="text-[#C49A6C] font-mono text-[10px] tracking-[0.35em] uppercase block">
+                ★ COZY MEMBER SYSTEM ★
+              </span>
+              <h3 className="text-2xl font-serif font-bold text-white tracking-wide">
+                开启云端数据同步，永久封存高定秘方
+              </h3>
+              <p className="text-xs text-stone-400 leading-relaxed max-w-lg mx-auto font-light">
+                一键登录标准管理账号，立刻与大堂复古热敏打印机建立实时连结，安全存储您的个人特调配方。
+              </p>
+              <div className="pt-4 flex justify-center gap-4">
+                {user ? (
+                  <button 
+                    onClick={() => handleTabClick('wishlist')}
+                    className="px-6 py-3 bg-white hover:bg-stone-200 text-black text-xs font-black tracking-widest uppercase transition duration-200 border-none cursor-pointer font-serif active:scale-95 shadow-lg"
+                  >
+                    📓 查看我的高定特调簿
+                  </button>
+                ) : (
+                  <button 
+                    onClick={onNavigateToLogin}
+                    className="px-6 py-3 bg-white hover:bg-stone-200 text-black text-xs font-black tracking-widest uppercase transition duration-200 border-none cursor-pointer font-serif active:scale-95 shadow-lg"
+                  >
+                    🔓 授权会员登录
                   </button>
                 )}
-              </span>
-            ) : (
-              <span>
-                您当前以 <span className="font-semibold italic">“自在游客身份”</span> 品鉴大堂。推荐极速 <button onClick={onNavigateToLogin} className="text-amber-900 underline font-black bg-transparent border-none p-0 cursor-pointer text-xs hover:text-amber-950 transition">会员登录</button> 获取您的终身特配心愿特快权限卡！
-              </span>
-            )}
-          </div>
-          
-          {user ? (
-            <span className="text-[10px] tracking-widest font-extrabold bg-[#5C3A21] text-[#FAF9F5] px-3.5 py-1 rounded-full uppercase shadow-xs">
-              🏆 MEMBER CONNECTED
-            </span>
-          ) : (
-            <span className="text-[10px] tracking-widest font-extrabold bg-[#A88C74]/20 text-[#5C3A21] px-3.5 py-1 rounded-full">
-              ☕ COZY ROOM GUEST
-            </span>
-          )}
-        </div>
-
-        {/* vintage-style HTML Coffee Menu Nav */}
-        <div id="cozy-serif-tabs" className="flex flex-wrap justify-center border-b border-[#A88C74]/30 mb-12 bg-transparent py-2 gap-1 sm:gap-2">
-          <button 
-            onClick={() => setActiveTab('home')}
-            className={`px-4 sm:px-6 py-3 text-xs sm:text-sm font-bold tracking-wider transition-all border-b-2 bg-transparent cursor-pointer font-serif ${
-              activeTab === 'home' 
-                ? 'text-[#8B5A2B] border-[#8B5A2B] font-extrabold' 
-                : 'text-stone-500 hover:text-[#5C3A21] border-transparent hover:border-[#A88C74]/30'
-            }`}
-          >
-             Fountain ⛲ 悠然堂舍
-          </button>
-          <button 
-            onClick={() => setActiveTab('menu')}
-            className={`px-4 sm:px-6 py-3 text-xs sm:text-sm font-bold tracking-wider transition-all border-b-2 bg-transparent cursor-pointer font-serif ${
-              activeTab === 'menu' 
-                ? 'text-[#8B5A2B] border-[#8B5A2B] font-extrabold' 
-                : 'text-stone-500 hover:text-[#5C3A21] border-transparent hover:border-[#A88C74]/30'
-            }`}
-          >
-            📖 手作茶点
-          </button>
-          <button 
-            onClick={() => setActiveTab('builder')}
-            className={`px-4 sm:px-6 py-3 text-xs sm:text-sm font-bold tracking-wider transition-all border-b-2 bg-transparent cursor-pointer font-serif ${
-              activeTab === 'builder' 
-                ? 'text-[#8B5A2B] border-[#8B5A2B] font-extrabold' 
-                : 'text-stone-500 hover:text-[#5C3A21] border-transparent hover:border-[#A88C74]/30'
-            }`}
-          >
-            🎨 私人特调房
-          </button>
-          <button 
-            onClick={() => setActiveTab('wishlist')}
-            className={`px-4 sm:px-6 py-3 text-xs sm:text-sm font-bold tracking-wider transition-all border-b-2 bg-transparent cursor-pointer relative font-serif ${
-              activeTab === 'wishlist' 
-                ? 'text-[#8B5A2B] border-[#8B5A2B] font-extrabold' 
-                : 'text-stone-500 hover:text-[#5C3A21] border-transparent hover:border-[#A88C74]/30'
-            }`}
-          >
-            ❤️ 心愿特配簿
-            {wishlist.length > 0 && (
-              <span className="absolute -top-1 -right-1 bg-red-600 text-white font-mono text-[9px] w-4.5 h-4.5 rounded-full flex items-center justify-center font-bold ring-2 ring-white animate-pulse">
-                {wishlist.length}
-              </span>
-            )}
-          </button>
-          <button 
-            onClick={() => setActiveTab('about')}
-            className={`px-4 sm:px-6 py-3 text-xs sm:text-sm font-bold tracking-wider transition-all border-b-2 bg-transparent cursor-pointer font-serif ${
-              activeTab === 'about' 
-                ? 'text-[#8B5A2B] border-[#8B5A2B] font-extrabold' 
-                : 'text-stone-500 hover:text-[#5C3A21] border-transparent hover:border-[#A88C74]/30'
-            }`}
-          >
-            📜 匠人手记
-          </button>
-          <button 
-            onClick={() => setActiveTab('contact')}
-            className={`px-4 sm:px-6 py-3 text-xs sm:text-sm font-bold tracking-wider transition-all border-b-2 bg-transparent cursor-pointer font-serif ${
-              activeTab === 'contact' 
-                ? 'text-[#8B5A2B] border-[#8B5A2B] font-extrabold' 
-                : 'text-stone-500 hover:text-[#5C3A21] border-transparent hover:border-[#A88C74]/30'
-            }`}
-          >
-            📍 店铺联络
-          </button>
-          <button 
-            onClick={() => setActiveTab('printer')}
-            className={`px-4 sm:px-6 py-3 text-xs sm:text-sm font-bold tracking-wider transition-all border-b-2 bg-transparent cursor-pointer relative font-serif ${
-              activeTab === 'printer' 
-                ? 'text-[#8B5A2B] border-[#8B5A2B] font-extrabold' 
-                : 'text-stone-500 hover:text-[#5C3A21] border-transparent hover:border-[#A88C74]/30'
-            }`}
-          >
-            🖨️ 共享打单
-            {printQueue.filter(j => j.status === 'pending').length > 0 && (
-              <span className="absolute -top-1 -right-1 bg-amber-700 text-[#FAF9F5] font-mono text-[9px] w-4.5 h-4.5 rounded-full flex items-center justify-center font-bold ring-2 ring-white">
-                {printQueue.filter(j => j.status === 'pending').length}
-              </span>
-            )}
-          </button>
-        </div>
-
-        {/* ==================== SCREEN A: COZY HOME ==================== */}
-        {activeTab === 'home' && (
-          <div id="cozy-home-screen" className="space-y-16 animate-fadeIn">
-
-            {/* Core Philosophy Blocks */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            <div className="bg-[#FAF9F5] border border-[#A88C74]/30 p-8 rounded-3xl shadow-xs text-center relative group">
-              <div className="absolute top-2 right-4 text-[42px] font-serif text-[#C49A6C]/10 select-none">Ⅰ</div>
-              <div className="w-16 h-16 bg-[#5C3A21]/5 text-[#5C3A21] rounded-2xl flex items-center justify-center mx-auto mb-5 text-3xl font-serif">
-                🫘
               </div>
-              <h3 className="text-base font-bold text-[#5C3A21] font-serif mb-2">甄选单源原产庄园</h3>
-              <p className="text-xs text-stone-500 leading-relaxed font-light">
-                每一粒生豆皆源自于海拔1800米以上遮阴山峦微气候，在黄金产区原罐直航锁水，锁闭更完整花果调。
-              </p>
-            </div>
-
-            <div className="bg-[#FAF9F5] border border-[#A88C74]/30 p-8 rounded-3xl shadow-xs text-center relative group">
-              <div className="absolute top-2 right-4 text-[42px] font-serif text-[#C49A6C]/10 select-none">Ⅱ</div>
-              <div className="w-16 h-16 bg-[#5C3A21]/5 text-[#5C3A21] rounded-2xl flex items-center justify-center mx-auto mb-5 text-3xl font-serif">
-                🎯
-              </div>
-              <h3 className="text-base font-bold text-[#5C3A21] font-serif mb-2">手磨温控匠气冲泡</h3>
-              <p className="text-xs text-stone-500 leading-relaxed font-light">
-                资深星级咖啡品鉴师亲手执壶，根据庄园气压与当日水分指标精挑萃取区间，拒绝敷衍的自动化量产。
-              </p>
-            </div>
-
-            <div className="bg-[#FAF9F5] border border-[#A88C74]/30 p-8 rounded-3xl shadow-xs text-center relative group">
-              <div className="absolute top-2 right-4 text-[42px] font-serif text-[#C49A6C]/10 select-none">Ⅲ</div>
-              <div className="w-16 h-16 bg-[#5C3A21]/5 text-[#5C3A21] rounded-2xl flex items-center justify-center mx-auto mb-5 text-3xl font-serif">
-                🎻
-              </div>
-              <h3 className="text-base font-bold text-[#5C3A21] font-serif mb-2">无压流速声学沙龙</h3>
-              <p className="text-xs text-stone-500 leading-relaxed font-light">
-                古典木构架、淡雅茶香及温柔轻快的黑胶爵士，在这里筑起不被打扰的清幽绿洲。
-              </p>
             </div>
           </div>
-
-          {/* Immersive Bullet Screen (Danmaku) Board & Client Form */}
-          <div id="immersive-danmaku-board" className="bg-[#EADECE]/30 border border-[#A88C74]/30 rounded-3xl p-6 md:p-8 max-w-5xl mx-auto space-y-6 shadow-xs">
-            
-            <div className="flex flex-col md:flex-row items-start md:items-end justify-between border-b border-[#A88C74]/20 pb-4 gap-4">
-              <div className="space-y-1">
-                <span className="text-[#8B5A2B] font-bold text-[10px] tracking-wider uppercase font-serif block">★ GUEST ROOM BOARD ★</span>
-                <h3 className="text-xl font-bold text-[#5C3A21] font-serif flex items-center gap-2">
-                  <span>💬 悠然漫煮 · 实时回廊私语板</span>
-                </h3>
-                <p className="text-xs text-stone-500">来自全国各地的咖啡品鉴者在此留下的温暖心境弹幕（可在其上悬停鼠标暂停滚动）</p>
-              </div>
-              <div className="bg-[#8B5A2B]/10 rounded-xl px-3 py-1.5 border border-[#8B5A2B]/30 flex items-center gap-1.5 text-xs text-[#5C3A21] shrink-0 font-medium font-serif">
-                <span>💭 当前累计私语:</span>
-                <strong className="text-[#8B5A2B] font-bold font-mono">{liveReviews.length}</strong>
-                <span>条</span>
-              </div>
-            </div>
-
-            {/* Immersive Danmaku Scrolling Arena */}
-            <div className="relative h-64 bg-stone-900 border border-[#8B5A2B]/25 rounded-2xl w-full select-none overflow-hidden shadow-inner flex flex-col justify-around py-4">
-              {/* Decorative Background grid lines */}
-              <div className="absolute inset-0 bg-[radial-gradient(#C49A6C_1px,transparent_1.5px)] [background-size:24px_24px] opacity-10 pointer-events-none" />
-              
-              {/* Lane 0 */}
-              <div className="relative w-full h-12 overflow-hidden">
-                {liveReviews.filter((_, i) => i % 3 === 0).map((item, index) => (
-                  <div 
-                    key={`lane0-${index}`}
-                    className="absolute left-full top-1/2 inline-flex items-center gap-2.5 px-4.5 py-2.5 rounded-2xl whitespace-nowrap bg-[#FAF9F5]/95 hover:bg-white hover:border-[#8B5A2B] hover:shadow-lg text-stone-950 border border-[#A88C74]/30 shadow-sm backdrop-blur-md cursor-pointer text-xs font-semibold animate-danmaku select-none transition-all duration-200"
-                    style={{
-                      animationDuration: `${(item.speed || 28) * 1.8}s`,
-                      animationDelay: `${(index * 9) - 20}s`,
-                    }}
-                  >
-                    <span className="text-[#8B5A2B] font-bold shrink-0 font-serif">☕ @{item.name}</span>
-                    <span className="text-stone-700">{item.text}</span>
-                    <span className="text-amber-500 font-bold tracking-tight shrink-0 text-[10px]">{item.stars}</span>
-                  </div>
-                ))}
-              </div>
-
-              {/* Lane 1 */}
-              <div className="relative w-full h-12 overflow-hidden border-y border-[#A88C74]/10 bg-[#5C3A21]/15">
-                {liveReviews.filter((_, i) => i % 3 === 1).map((item, index) => (
-                  <div 
-                    key={`lane1-${index}`}
-                    className="absolute left-full top-1/2 inline-flex items-center gap-2.5 px-4.5 py-2.5 rounded-2xl whitespace-nowrap bg-stone-800 hover:bg-stone-750 text-stone-50 hover:border-[#C49A6C] hover:shadow-lg border border-stone-600 shadow-md backdrop-blur-md cursor-pointer text-xs font-semibold animate-danmaku select-none transition-all duration-200"
-                    style={{
-                      animationDuration: `${(item.speed || 32) * 1.8}s`,
-                      animationDelay: `${(index * 9.5) - 16}s`,
-                    }}
-                  >
-                    <span className="text-[#C49A6C] font-bold shrink-0 font-serif">🎨 @{item.name}</span>
-                    <span className="text-stone-250">{item.text}</span>
-                    <span className="text-[#C49A6C] font-bold tracking-tight shrink-0 text-[10px]">{item.stars}</span>
-                  </div>
-                ))}
-              </div>
-
-              {/* Lane 2 */}
-              <div className="relative w-full h-12 overflow-hidden">
-                {liveReviews.filter((_, i) => i % 3 === 2).map((item, index) => (
-                  <div 
-                    key={`lane2-${index}`}
-                    className="absolute left-full top-1/2 inline-flex items-center gap-2.5 px-4.5 py-2.5 rounded-2xl whitespace-nowrap bg-[#FAF9F5]/95 hover:bg-white hover:border-[#8B5A2B] hover:shadow-lg text-stone-950 border border-[#A88C74]/30 shadow-sm backdrop-blur-md cursor-pointer text-xs font-semibold animate-danmaku select-none transition-all duration-200"
-                    style={{
-                      animationDuration: `${(item.speed || 30) * 1.8}s`,
-                      animationDelay: `${(index * 10) - 18}s`,
-                    }}
-                  >
-                    <span className="text-[#8B5A2B] font-bold shrink-0 font-serif">🌸 @{item.name}</span>
-                    <span className="text-stone-700">{item.text}</span>
-                    <span className="text-amber-500 font-bold tracking-tight shrink-0 text-[10px]">{item.stars}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Quick Submit Form below bullet wall */}
-            <div className="bg-white border border-[#A88C74]/15 rounded-2xl p-5 shadow-xs">
-              <h4 className="text-xs font-extrabold text-[#5C3A21] mb-3 flex items-center gap-2 font-serif">
-                <span>🏮 快留下一条属于您的“心境私语弹幕”：</span>
-              </h4>
-              
-              <form 
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  if (!danmakuInputText.trim()) return;
-                  addDanmaku(danmakuInputText, danmakuInputNick, danmakuStars);
-                  setDanmakuInputText('');
-                }}
-                className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end"
-              >
-                {/* Nickname input */}
-                <div className="md:col-span-3 text-xs">
-                  <label className="block text-[10px] text-stone-500 font-bold mb-1">您的尊雅称呼 (Name)</label>
-                  <input 
-                    type="text" 
-                    className="w-full p-2.5 bg-[#FAF9F5] border border-stone-200 rounded-xl focus:outline-none focus:border-[#5C3A21] focus:bg-white text-xs text-stone-800 font-medium"
-                    placeholder={user ? `${user.name} (已连结)` : "如“浮生旅客”，默认匿名"}
-                    disabled={!!user}
-                    value={user ? user.name : danmakuInputNick}
-                    onChange={(e) => setDanmakuInputNick(e.target.value)}
-                  />
-                </div>
-
-                {/* Stars select */}
-                <div className="md:col-span-2 text-xs">
-                  <label className="block text-[10px] text-stone-500 font-bold mb-1">美味评级 (Star)</label>
-                  <select 
-                    value={danmakuStars}
-                    onChange={(e) => setDanmakuStars(e.target.value)}
-                    className="w-full p-2.5 bg-[#FAF9F5] border border-stone-200 rounded-xl focus:outline-none focus:border-[#5C3A21] focus:bg-white text-xs text-stone-800"
-                  >
-                    <option value="★★★★★">★★★★★ 臻品推荐</option>
-                    <option value="★★★★☆">★★★★☆ 醇正可口</option>
-                    <option value="★★★☆☆">★★★☆☆ 风味普通</option>
-                  </select>
-                </div>
-
-                {/* Sentence text */}
-                <div className="md:col-span-5 text-xs">
-                  <label className="block text-[10px] text-stone-500 font-bold mb-1">写点暖心说辞吧 (Message) *</label>
-                  <input 
-                    required
-                    type="text" 
-                    maxLength={60}
-                    className="w-full p-2.5 bg-[#FAF9F5] border border-stone-200 rounded-xl focus:outline-none focus:border-[#5C3A21] focus:bg-white text-xs text-[#5C3A21] font-semibold"
-                    placeholder="手冲瑰夏原香馥郁，让人忘却周遭喧喧扰扰... ☕"
-                    value={danmakuInputText}
-                    onChange={(e) => setDanmakuInputText(e.target.value)}
-                  />
-                </div>
-
-                {/* Button */}
-                <div className="md:col-span-2">
-                  <button 
-                    type="submit" 
-                    className="w-full py-2.5 bg-[#5C3A21] hover:bg-amber-950 text-white font-bold rounded-xl transition-all font-serif text-xs border-none cursor-pointer shadow-sm active:scale-95"
-                  >
-                    🚀 发送弹幕私语
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-
-          {/* Member persistent lock block */}
-          <div className="bg-gradient-to-r from-[#8B5A2B]/10 to-transparent border border-[#8B5A2B]/20 p-8 rounded-3xl flex flex-col sm:flex-row items-center justify-between gap-6">
-            <div className="space-y-1">
-              <span className="px-2 py-0.5 text-[9px] font-bold rounded bg-[#8B5A2B] text-white inline-block">会员心愿互通卡</span>
-              <h3 className="text-sm font-bold text-[#5C3A21] font-serif">开启全数据同步，保存专属高定秘方</h3>
-              <p className="text-xs text-stone-500 leading-relaxed">
-                普通访客记录重新加载可能遗失。一键登录标准管理账号（帐号: <strong className="font-mono">admin</strong> / 密码: <strong className="font-mono">adminpassword</strong>）可立即读取底层系统数据库。
-              </p>
-            </div>
-            <button 
-              onClick={user ? () => setActiveTab('wishlist') : onNavigateToLogin}
-              className="px-5 py-3 bg-[#5C3A21] hover:bg-amber-950 text-white font-bold text-xs rounded-xl shadow transition duration-200 border-none cursor-pointer font-serif shrink-0 animate-bounce"
-            >
-              {user ? '📓 查看我的特调簿' : '🔓 授权登录'}
-            </button>
-          </div>
-
         </div>
       )}
+
+      {activeTab !== 'home' && (
+        <div className="max-w-6xl mx-auto px-4 pb-24 w-full space-y-12">
 
       {/* ==================== SCREEN B: SPECIAL MENU ==================== */}
       {activeTab === 'menu' && (
@@ -2037,7 +2076,7 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
               </span>
               <h2 className="text-xl md:text-2xl font-bold font-serif">大堂中央网络热敏打印服务器</h2>
               <p className="text-stone-300 text-xs leading-relaxed max-w-2xl font-light">
-                本控制台与悠然吧台的网络热敏打印机实时直连。欢迎您使用打印订单功能。
+                本控制台与悠然吧台的网络热敏打印机实时直连。每当客人在大堂中下单支付、或投递私人定制的风味茶点配方时，数据都将通过网络即时同步至此服务器。您可以实时监测出纸进纸状态。
               </p>
               <div className="flex flex-wrap gap-4 pt-2 text-[10px] text-stone-300 font-mono">
                 <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" /> 通信状态: 在线联机 (Connected)</span>
@@ -2106,7 +2145,7 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
               <div className="space-y-1.5">
                 <p className="text-[11px] font-bold text-stone-700">悠然堂舍一号机 (Bar Printer #1)</p>
                 <p className="text-[10px] text-stone-500 max-w-[200px] mx-auto leading-normal">
-                 
+                  采用203DPI精细针头热敏出纸技术。当您在右侧点击“下达打单指令”时，此纸卷会执行吐纸动画并模拟物理进纸动作。
                 </p>
               </div>
 
@@ -2171,7 +2210,7 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
                       onClick={() => setActiveTab('menu')}
                       className="px-4 py-2.5 bg-[#5C3A21] hover:bg-amber-950 text-white font-bold rounded-xl text-xs transition cursor-pointer border-none font-serif"
                     >
-                      去点杯咖啡 →
+                      去点杯咖啡测试打单 →
                     </button>
                   </div>
                 </div>
@@ -2430,7 +2469,69 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
         </div>
       )}
 
-      </div>
+      {/* Premium Member Login Trigger Modal */}
+      {showLoginModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fadeIn">
+          <div className="w-full max-w-md bg-[#FAF9F5] rounded-3xl border border-[#A88C74]/30 shadow-2xl p-8 relative overflow-hidden text-[#5C3A21] animate-slideUp">
+            {/* Visual top accent */}
+            <div className="absolute top-0 left-0 right-0 h-2 bg-[#8B5A2B]" />
+            
+            {/* Close button */}
+            <button 
+              onClick={() => setShowLoginModal(false)}
+              className="absolute top-4 right-4 text-stone-400 hover:text-stone-700 transition cursor-pointer p-1 bg-transparent border-none"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="text-center space-y-6 mt-2">
+              <div className="inline-flex items-center justify-center w-16 h-16 bg-[#EADECE]/50 rounded-full text-3xl select-none">
+                🔒
+              </div>
+              
+              <div className="space-y-2">
+                <h3 className="text-2xl font-serif font-bold text-[#5C3A21] tracking-wide">
+                  开启您的会员品鉴之旅
+                </h3>
+                <p className="text-xs text-stone-600 leading-relaxed font-light">
+                  您当前正以 <span className="font-semibold italic">“自在游客”</span> 身份鉴赏大堂。立即登录/注册会员，即可开启专享高定茶点、私人特调工坊以及大堂云端同步等全功能特快权限！
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4 pt-2">
+                <button
+                  onClick={() => {
+                    setShowLoginModal(false);
+                    onNavigateToLogin();
+                  }}
+                  className="w-full py-3 bg-[#8B5A2B] hover:bg-[#5C3A21] text-white rounded-xl text-[11px] font-bold tracking-wider uppercase transition cursor-pointer active:scale-95 shadow-md shadow-amber-900/10 border-none"
+                >
+                  🔓 授权会员登录
+                </button>
+                <button
+                  onClick={() => {
+                    setShowLoginModal(false);
+                    onNavigateToRegister();
+                  }}
+                  className="w-full py-3 bg-white hover:bg-stone-50 text-[#8B5A2B] border border-[#8B5A2B]/40 rounded-xl text-[11px] font-bold tracking-wider uppercase transition cursor-pointer active:scale-95"
+                >
+                  ✍️ 注册新会员
+                </button>
+              </div>
+              
+              <button
+                onClick={() => setShowLoginModal(false)}
+                className="text-stone-400 hover:text-[#8B5A2B] text-xs font-medium tracking-wide transition underline decoration-dotted bg-transparent border-none cursor-pointer"
+              >
+                继续以游客身份浏览大堂
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+        </div>
+      )}
     </div>
   );
 }

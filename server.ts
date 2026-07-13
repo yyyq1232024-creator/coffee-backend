@@ -5,7 +5,6 @@ import express from "express";
 import path from "path";
 import crypto from "crypto";
 import fs from "fs/promises";
-import { createServer as createViteServer } from "vite";
 import { User, UserRole, UserStatus, Order, PrintJob } from "./src/types.ts";
 import {
   initSqliteDb,
@@ -708,36 +707,11 @@ app.post("/api/orders/checkout", async (req, res) => {
 
     await insertOrder(newOrder);
 
-    // ==================== [NEW] Auto-Dispatch Print Job to Central Server ====================
     const printJobId = jobId || "PRT-" + Math.floor(1000 + Math.random() * 9000) + "-" + crypto.randomBytes(3).toString("hex").toUpperCase();
-    
-    // Check if job already exists in case client sends both requests
-    const existingJobs = await getAllPrintJobs();
-    if (!existingJobs.some(j => j.id === printJobId)) {
-      await insertPrintJob({
-        id: printJobId,
-        orderId: newOrder.id,
-        buyerName: newOrder.buyerName,
-        buyerUsername: newOrder.buyerUsername,
-        totalPrice: newOrder.totalPrice,
-        items: newOrder.items.map(itm => ({
-          name: itm.name,
-          price: itm.price,
-          size: itm.size,
-          sugar: itm.sugar,
-          milk: itm.milk,
-          temp: itm.temp,
-          notes: itm.notes
-        })),
-        timestamp: newOrder.orderTime,
-        status: 'pending'
-      });
-      console.log(`🖨️ [Server Printer] Auto-enqueued print task ${printJobId} for buyer ${buyerName}`);
-    }
 
     res.json({
       success: true,
-      message: "🎉 订单支付成功！实时打单任务已直接投递至服务器中央打印队列！我们的大堂工匠已开始为您调制风味。",
+      message: "🎉 订单支付成功！已为您生成提单凭证。",
       data: newOrder,
       printJobId: printJobId
     });
@@ -1099,7 +1073,9 @@ async function startServer() {
   }
 
   // Vite dev server mounting in non-production mode
-  if (process.env.NODE_ENV !== "production") {
+  const isProd = process.env.NODE_ENV === "production" || (typeof __filename !== "undefined" && (__filename.endsWith(".cjs") || __filename.includes("dist")));
+  if (!isProd) {
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
