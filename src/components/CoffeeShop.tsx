@@ -769,26 +769,26 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
               </button>
 
               {openDropdown === 'order' && (
-                <div className="absolute right-0 sm:left-0 top-full mt-1.5 w-48 bg-white border border-[#A88C74]/25 rounded-2xl shadow-xl py-2.5 z-50 animate-fadeIn text-[#5C3A21]">
+                <div className="absolute left-0 top-full mt-1.5 w-48 bg-white border border-[#A88C74]/25 rounded-2xl shadow-xl py-2.5 z-50 animate-fadeIn text-[#5C3A21]">
                   <button 
                     onClick={() => handleTabClick('menu')}
                     className={`w-full text-left px-4 py-2 text-xs font-serif font-bold hover:bg-[#EADECE]/30 transition flex items-center justify-between ${activeTab === 'menu' ? 'text-[#8B5A2B] bg-[#EADECE]/15' : ''}`}
                   >
-                    <span>极雅手作茶点</span>
+                    <span className="whitespace-nowrap">极雅手作茶点</span>
                   </button>
                   <button 
                     onClick={() => handleTabClick('builder')}
                     className={`w-full text-left px-4 py-2 text-xs font-serif font-bold hover:bg-[#EADECE]/30 transition flex items-center justify-between ${activeTab === 'builder' ? 'text-[#8B5A2B] bg-[#EADECE]/15' : ''}`}
                   >
-                    <span>私人特调工坊</span>
+                    <span className="whitespace-nowrap">私人特调工坊</span>
                   </button>
                   <button 
                     onClick={() => handleTabClick('printer')}
                     className={`w-full text-left px-4 py-2 text-xs font-serif font-bold hover:bg-[#EADECE]/30 transition flex items-center justify-between ${activeTab === 'printer' ? 'text-[#8B5A2B] bg-[#EADECE]/15' : ''}`}
                   >
-                    <span>共享热敏打单</span>
+                    <span className="whitespace-nowrap">共享热敏打单</span>
                     {printQueue.filter(j => j.status === 'pending').length > 0 && (
-                      <span className="bg-amber-700 text-white font-mono text-[9px] px-1.5 py-0.5 rounded-full font-bold">
+                      <span className="bg-amber-700 text-white font-mono text-[9px] px-1.5 py-0.5 rounded-full font-bold ml-2">
                         {printQueue.filter(j => j.status === 'pending').length}
                       </span>
                     )}
@@ -819,19 +819,19 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
                     onClick={() => handleTabClick('home')}
                     className={`w-full text-left px-4 py-2 text-xs font-serif font-bold hover:bg-[#EADECE]/30 transition ${activeTab === 'home' ? 'text-[#8B5A2B] bg-[#EADECE]/15' : ''}`}
                   >
-                    悠然大堂
+                    <span className="whitespace-nowrap">悠然大堂</span>
                   </button>
                   <button 
                     onClick={() => handleTabClick('about')}
                     className={`w-full text-left px-4 py-2 text-xs font-serif font-bold hover:bg-[#EADECE]/30 transition ${activeTab === 'about' ? 'text-[#8B5A2B] bg-[#EADECE]/15' : ''}`}
                   >
-                    匠人灵感手记
+                    <span className="whitespace-nowrap">匠人灵感手记</span>
                   </button>
                   <button 
                     onClick={() => handleTabClick('contact')}
                     className={`w-full text-left px-4 py-2 text-xs font-serif font-bold hover:bg-[#EADECE]/30 transition ${activeTab === 'contact' ? 'text-[#8B5A2B] bg-[#EADECE]/15' : ''}`}
                   >
-                    寻访店铺联络
+                    <span className="whitespace-nowrap">寻访店铺联络</span>
                   </button>
                 </div>
               )}
