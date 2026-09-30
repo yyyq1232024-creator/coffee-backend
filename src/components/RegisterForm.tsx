@@ -48,9 +48,9 @@ export default function RegisterForm({ onRegisterSuccess, onSwitchToLogin, onBac
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          username: username.trim().toLowerCase(),
+          username: username.trim().normalize('NFKC'),
           name: name.trim(),
-          email: email.trim(),
+          email: email.trim().normalize('NFKC').toLowerCase(),
           bio: bio.trim(),
           password,
         }),
@@ -69,7 +69,11 @@ export default function RegisterForm({ onRegisterSuccess, onSwitchToLogin, onBac
 
       onRegisterSuccess();
     } catch (err: any) {
-      setError(err.message || '网络连接异常故障，请检查服务器是否正常运行');
+      setError(
+        err instanceof TypeError
+          ? '无法连接注册服务。请在项目目录运行 npm run dev，并通过显示的网址打开网站。'
+          : err.message || '网络连接异常故障，请检查服务器是否正常运行'
+      );
     } finally {
       setLoading(false);
     }
@@ -103,8 +107,8 @@ export default function RegisterForm({ onRegisterSuccess, onSwitchToLogin, onBac
               type="text"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              placeholder="用户名"
-              className="w-full bg-[#EAEAEA] text-black font-semibold placeholder:text-stone-500 placeholder:font-semibold rounded-none py-3 px-3 text-xs tracking-wider uppercase border-none focus:outline-none focus:ring-2 focus:ring-white transition-all duration-200"
+              placeholder="用户名（区分大小写）"
+              className="w-full bg-[#EAEAEA] text-black font-semibold placeholder:text-stone-500 placeholder:font-semibold rounded-none py-3 px-3 text-xs tracking-wider border-none focus:outline-none focus:ring-2 focus:ring-white transition-all duration-200"
               disabled={loading}
               required
             />
@@ -122,6 +126,7 @@ export default function RegisterForm({ onRegisterSuccess, onSwitchToLogin, onBac
             />
           </div>
         </div>
+        <p className="-mt-1 text-[9px] text-stone-500 tracking-wide">用户名和密码均区分英文字母大小写；邮箱不区分。</p>
 
         <div>
           <input
@@ -152,7 +157,7 @@ export default function RegisterForm({ onRegisterSuccess, onSwitchToLogin, onBac
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             placeholder="密码 (最少6位)"
-            className="w-full bg-[#EAEAEA] text-black font-semibold placeholder:text-stone-500 placeholder:font-semibold rounded-none py-3 pl-3 pr-16 text-xs tracking-wider uppercase border-none focus:outline-none focus:ring-2 focus:ring-white transition-all duration-200"
+            className="w-full bg-[#EAEAEA] text-black font-semibold placeholder:text-stone-500 placeholder:font-semibold rounded-none py-3 pl-3 pr-16 text-xs tracking-wider border-none focus:outline-none focus:ring-2 focus:ring-white transition-all duration-200"
             disabled={loading}
             required
           />
@@ -172,7 +177,7 @@ export default function RegisterForm({ onRegisterSuccess, onSwitchToLogin, onBac
             value={confirmPassword}
             onChange={(e) => setConfirmPassword(e.target.value)}
             placeholder="确认密码"
-            className="w-full bg-[#EAEAEA] text-black font-semibold placeholder:text-stone-500 placeholder:font-semibold rounded-none py-3 px-3 text-xs tracking-wider uppercase border-none focus:outline-none focus:ring-2 focus:ring-white transition-all duration-200"
+            className="w-full bg-[#EAEAEA] text-black font-semibold placeholder:text-stone-500 placeholder:font-semibold rounded-none py-3 px-3 text-xs tracking-wider border-none focus:outline-none focus:ring-2 focus:ring-white transition-all duration-200"
             disabled={loading}
             required
           />

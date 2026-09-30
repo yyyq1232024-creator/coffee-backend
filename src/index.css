@@ -49,3 +49,119 @@
   animation-play-state: paused;
 }
 
+.coffee-nav-link {
+  position: relative;
+  border: 0;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.78);
+  cursor: pointer;
+  transition: color 220ms ease;
+}
+
+.coffee-nav-link::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  bottom: -6px;
+  left: 0;
+  height: 1px;
+  background: currentColor;
+  transform: scaleX(0);
+  transform-origin: right;
+  transition: transform 260ms ease;
+}
+
+.coffee-nav-link:hover {
+  color: #fff;
+}
+
+.coffee-nav-link:hover::after {
+  transform: scaleX(1);
+  transform-origin: left;
+}
+
+.coffee-grain {
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.92' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='.72'/%3E%3C/svg%3E");
+}
+
+.coffee-cursor {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 240ms ease;
+}
+
+.coffee-cursor.is-visible {
+  opacity: 1;
+}
+
+.coffee-cursor__dot,
+.coffee-cursor__ring,
+.coffee-cursor__glow {
+  position: fixed;
+  top: 0;
+  left: 0;
+  border-radius: 999px;
+  will-change: transform;
+}
+
+.coffee-cursor__dot {
+  width: 7px;
+  height: 7px;
+  margin: -3.5px 0 0 -3.5px;
+  background: #e7b479;
+  box-shadow: 0 0 18px rgba(231, 180, 121, 0.72);
+}
+
+.coffee-cursor__ring {
+  width: 42px;
+  height: 42px;
+  margin: -21px 0 0 -21px;
+  border: 1px solid rgba(255, 255, 255, 0.68);
+  background: rgba(255, 255, 255, 0.025);
+  backdrop-filter: blur(1.5px);
+  transition: width 300ms ease, height 300ms ease, margin 300ms ease, background 300ms ease, border-color 300ms ease;
+}
+
+.coffee-cursor__ring.is-active {
+  width: 66px;
+  height: 66px;
+  margin: -33px 0 0 -33px;
+  border-color: rgba(231, 180, 121, 0.82);
+  background: rgba(231, 180, 121, 0.12);
+}
+
+.coffee-cursor__glow {
+  width: 210px;
+  height: 210px;
+  margin: -105px 0 0 -105px;
+  opacity: 0.22;
+  background: radial-gradient(circle, rgba(220, 163, 102, 0.3) 0%, rgba(220, 163, 102, 0.08) 38%, transparent 70%);
+  transition: opacity 320ms ease, scale 320ms ease;
+}
+
+.coffee-cursor__glow.is-active {
+  opacity: 0.38;
+  scale: 1.22;
+}
+
+@media (pointer: fine) {
+  .coffee-cursor-enabled,
+  .coffee-cursor-enabled * {
+    cursor: none !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .coffee-home *,
+  .coffee-home *::before,
+  .coffee-home *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+

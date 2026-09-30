@@ -15,7 +15,14 @@ interface JsonDatabase {
   printJobs?: PrintJob[];
 }
 
-const DB_FILE_PATH = path.join(process.cwd(), "coffee-shop-db.json");
+const packageJsonPath = process.env.npm_package_json;
+const projectRoot = packageJsonPath
+  ? path.dirname(path.resolve(packageJsonPath))
+  : process.cwd();
+const DB_FILE_PATH = process.env.COFFEE_DB_FILE
+  ? path.resolve(process.env.COFFEE_DB_FILE)
+  : path.join(projectRoot, "coffee-shop-db.json");
+const LEGACY_DB_FILE_PATH = path.join(projectRoot, "users-db.json");
 
 // Database state indicators
 export let useMySQL = false;
@@ -24,6 +31,14 @@ export let mysqlPool: mysql.Pool | null = null;
 // Password hashing helper matching previous implementation
 export function hashPassword(password: string, salt: string): string {
   return crypto.createHash("sha256").update(password + salt).digest("hex");
+}
+
+export function normalizeUsername(username: string): string {
+  return username.trim().normalize("NFKC");
+}
+
+export function normalizeEmail(email: string): string {
+  return email.trim().normalize("NFKC").toLowerCase();
 }
 
 // Read JSON database from file (for fallback offline mode)
@@ -40,6 +55,24 @@ async function readJsonDb(): Promise<JsonDatabase> {
 // Write JSON database to file
 async function writeJsonDb(db: JsonDatabase): Promise<void> {
   await fs.writeFile(DB_FILE_PATH, JSON.stringify(db, null, 2), "utf-8");
+}
+
+async function readStoredUsersFile(filePath: string): Promise<StoredUser[]> {
+  try {
+    const data = JSON.parse(await fs.readFile(filePath, "utf-8"));
+    const users = Array.isArray(data) ? data : Array.isArray(data?.users) ? data.users : [];
+    return users.filter((user: StoredUser) =>
+      Boolean(
+        user?.id &&
+        user?.username &&
+        user?.email &&
+        user?.salt &&
+        /^[a-f0-9]{64}$/i.test(user?.passwordHash || "")
+      )
+    );
+  } catch {
+    return [];
+  }
 }
 
 // Setup relational schema & pre-seed tables
@@ -91,7 +124,7 @@ export async function initSqliteDb(): Promise<void> {
       await mysqlPool.query(`
         CREATE TABLE IF NOT EXISTS users (
           id VARCHAR(255) PRIMARY KEY,
-          username VARCHAR(255) UNIQUE NOT NULL,
+          username VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin UNIQUE NOT NULL,
           name VARCHAR(255) NOT NULL,
           email VARCHAR(255) UNIQUE NOT NULL,
           role VARCHAR(50) NOT NULL,
@@ -134,6 +167,7 @@ export async function initSqliteDb(): Promise<void> {
         CREATE TABLE IF NOT EXISTS print_jobs (
           id VARCHAR(255) PRIMARY KEY,
           orderId VARCHAR(255),
+          ownerUserId VARCHAR(255),
           buyerName VARCHAR(255) NOT NULL,
           buyerUsername VARCHAR(255) NOT NULL,
           totalPrice DOUBLE NOT NULL,
@@ -156,6 +190,69 @@ export async function initSqliteDb(): Promise<void> {
           FOREIGN KEY (printJobId) REFERENCES print_jobs(id) ON DELETE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
       `);
+
+      const [printJobOwnerColumns]: [any[], any] = await mysqlPool.query(
+        "SHOW COLUMNS FROM print_jobs LIKE 'ownerUserId'"
+      );
+      if (printJobOwnerColumns.length === 0) {
+        await mysqlPool.query(
+          "ALTER TABLE print_jobs ADD COLUMN ownerUserId VARCHAR(255) NULL AFTER orderId"
+        );
+      }
+
+      // Usernames are deliberately case-sensitive. Keep legacy databases aligned.
+      await mysqlPool.query(
+        "ALTER TABLE users MODIFY username VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL"
+      );
+
+      // Accounts may have been created while MySQL was temporarily offline,
+      // in which case older versions wrote them to a local JSON fallback.
+      // Import only missing identities and never overwrite a MySQL password.
+      const localUsers = [
+        ...await readStoredUsersFile(DB_FILE_PATH),
+        ...await readStoredUsersFile(LEGACY_DB_FILE_PATH),
+      ];
+      let importedUserCount = 0;
+
+      for (const localUser of localUsers) {
+        const username = normalizeUsername(localUser.username);
+        const email = normalizeEmail(localUser.email);
+        const [identityRows]: [any[], any] = await mysqlPool.query(
+          "SELECT id FROM users WHERE BINARY username = BINARY ? OR LOWER(email) = LOWER(?) LIMIT 1",
+          [username, email]
+        );
+        if (identityRows.length > 0) continue;
+
+        const [idRows]: [any[], any] = await mysqlPool.query(
+          "SELECT id FROM users WHERE id = ? LIMIT 1",
+          [localUser.id]
+        );
+        const importedId = idRows.length > 0
+          ? "user-id-" + crypto.randomBytes(8).toString("hex")
+          : localUser.id;
+
+        await mysqlPool.query(
+          `INSERT INTO users (id, username, name, email, role, status, bio, createdAt, salt, passwordHash)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            importedId,
+            username,
+            localUser.name || username,
+            email,
+            localUser.role === "admin" ? "admin" : "user",
+            localUser.status === "suspended" ? "suspended" : "active",
+            localUser.bio || "",
+            localUser.createdAt || new Date().toISOString(),
+            localUser.salt,
+            localUser.passwordHash,
+          ]
+        );
+        importedUserCount += 1;
+      }
+
+      if (importedUserCount > 0) {
+        console.log(`🔄 Migrated ${importedUserCount} local account(s) into MySQL.`);
+      }
 
       // 4. Prepopulate database users if empty
       const [userCountRows]: [any[], any] = await mysqlPool.query("SELECT COUNT(*) as count FROM users");
@@ -332,6 +429,37 @@ export async function initSqliteDb(): Promise<void> {
     }
 
     let modified = false;
+
+    // Earlier versions stored users in users-db.json. Merge any accounts that
+    // are missing from the current database so an upgrade does not make a
+    // previously registered account appear to vanish.
+    try {
+      const legacyUsers = await readStoredUsersFile(LEGACY_DB_FILE_PATH);
+
+      for (const legacyUser of legacyUsers) {
+        if (!legacyUser?.username || !legacyUser?.email || !legacyUser?.salt || !legacyUser?.passwordHash) {
+          continue;
+        }
+
+        const usernameKey = normalizeUsername(legacyUser.username);
+        const emailKey = normalizeEmail(legacyUser.email);
+        const alreadyPresent = db.users.some((user) =>
+          normalizeUsername(user.username) === usernameKey ||
+          normalizeEmail(user.email) === emailKey
+        );
+
+        if (!alreadyPresent) {
+          db.users.push({
+            ...legacyUser,
+            username: normalizeUsername(legacyUser.username),
+            email: emailKey,
+          });
+          modified = true;
+        }
+      }
+    } catch {
+      // No legacy database is a valid state for new installations.
+    }
 
     // Seed mock JSON users
     if (db.users.length === 0) {
@@ -559,10 +687,11 @@ export async function getUserById(id: string): Promise<User | null> {
 
 // Get stored user by Username
 export async function getStoredUserByUsername(username: string): Promise<StoredUser | null> {
+  const normalizedUsername = normalizeUsername(username);
   if (useMySQL && mysqlPool) {
     const [rows]: [any[], any] = await mysqlPool.query(
-      "SELECT id, username, name, email, role, status, bio, createdAt, salt, passwordHash FROM users WHERE LOWER(username) = LOWER(?)",
-      [username]
+      "SELECT id, username, name, email, role, status, bio, createdAt, salt, passwordHash FROM users WHERE BINARY username = BINARY ?",
+      [normalizedUsername]
     );
     if (!rows || rows.length === 0) return null;
     const u = rows[0];
@@ -581,16 +710,17 @@ export async function getStoredUserByUsername(username: string): Promise<StoredU
   }
 
   const db = await readJsonDb();
-  const found = db.users.find((u) => u.username.toLowerCase() === username.toLowerCase());
+  const found = db.users.find((u) => normalizeUsername(u.username) === normalizedUsername);
   return found || null;
 }
 
 // Get stored user by Email
 export async function getStoredUserByEmail(email: string): Promise<StoredUser | null> {
+  const normalizedEmail = normalizeEmail(email);
   if (useMySQL && mysqlPool) {
     const [rows]: [any[], any] = await mysqlPool.query(
       "SELECT id, username, name, email, role, status, bio, createdAt, salt, passwordHash FROM users WHERE LOWER(email) = LOWER(?)",
-      [email]
+      [normalizedEmail]
     );
     if (!rows || rows.length === 0) return null;
     const u = rows[0];
@@ -609,7 +739,7 @@ export async function getStoredUserByEmail(email: string): Promise<StoredUser | 
   }
 
   const db = await readJsonDb();
-  const found = db.users.find((u) => u.email.toLowerCase() === email.toLowerCase());
+  const found = db.users.find((u) => normalizeEmail(u.email) === normalizedEmail);
   return found || null;
 }
 
@@ -769,38 +899,11 @@ export async function insertOrder(order: Order): Promise<void> {
 
 // ==================== Print Jobs Database Helpers ====================
 
-export async function cleanupExpiredPrintJobs(): Promise<void> {
-  const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
-  if (useMySQL && mysqlPool) {
-    try {
-      const thresholdTime = fiveMinutesAgo.toISOString();
-      await mysqlPool.query("DELETE FROM print_jobs WHERE status = 'pending' AND timestamp < ?", [thresholdTime]);
-    } catch (e) {
-      console.error("Failed to clean up expired print jobs in MySQL:", e);
-    }
-    return;
-  }
-
-  const db = await readJsonDb();
-  if (db.printJobs) {
-    const originalLength = db.printJobs.length;
-    db.printJobs = db.printJobs.filter(j => {
-      if (j.status !== 'pending') return true;
-      const jobTime = new Date(j.timestamp);
-      return jobTime.getTime() >= fiveMinutesAgo.getTime();
-    });
-    if (db.printJobs.length !== originalLength) {
-      await writeJsonDb(db);
-    }
-  }
-}
-
 export async function getAllPrintJobs(): Promise<PrintJob[]> {
-  await cleanupExpiredPrintJobs();
   if (useMySQL && mysqlPool) {
     try {
       const [jobs]: [any[], any] = await mysqlPool.query(
-        "SELECT id, orderId, buyerName, buyerUsername, totalPrice, timestamp, status FROM print_jobs ORDER BY timestamp DESC"
+        "SELECT id, orderId, ownerUserId, buyerName, buyerUsername, totalPrice, timestamp, status FROM print_jobs ORDER BY timestamp DESC"
       );
       const [items]: [any[], any] = await mysqlPool.query(
         "SELECT printJobId, name, price, size, sugar, milk, temp, notes FROM print_job_items"
@@ -822,6 +925,7 @@ export async function getAllPrintJobs(): Promise<PrintJob[]> {
         return {
           id: j.id,
           orderId: j.orderId || undefined,
+          ownerUserId: j.ownerUserId || undefined,
           buyerName: j.buyerName,
           buyerUsername: j.buyerUsername,
           totalPrice: Number(j.totalPrice),
@@ -852,8 +956,8 @@ export async function insertPrintJob(job: PrintJob): Promise<void> {
       await connection.beginTransaction();
 
       await connection.query(
-        "INSERT INTO print_jobs (id, orderId, buyerName, buyerUsername, totalPrice, timestamp, status) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        [job.id, job.orderId || null, job.buyerName, job.buyerUsername, job.totalPrice, job.timestamp, job.status]
+        "INSERT INTO print_jobs (id, orderId, ownerUserId, buyerName, buyerUsername, totalPrice, timestamp, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        [job.id, job.orderId || null, job.ownerUserId || null, job.buyerName, job.buyerUsername, job.totalPrice, job.timestamp, job.status]
       );
 
       for (const item of job.items) {
@@ -941,29 +1045,5 @@ export async function deletePrintJob(id: string): Promise<void> {
 }
 
 function getInitialSeededPrintJobs(): PrintJob[] {
-  return [
-    {
-      id: "PRT-2849-01",
-      buyerName: "爱丽丝",
-      buyerUsername: "alice",
-      totalPrice: 68,
-      items: [
-        { name: "★独家手作★ 耶加雪菲 · 阳光日晒", price: 38, size: "大杯的大口满足 (Large)", sugar: "三分糖 (微甜微醇)", milk: "香浓冰鲜牛奶", temp: "少冰 (少冰爽口)", notes: "请附打包纸架" },
-        { name: "法式手作重乳酪芝士", price: 30, size: "例份", sugar: "半糖 (半糖恰到合适)", milk: "香浓冰鲜牛奶", temp: "常温状态" }
-      ],
-      timestamp: new Date(Date.now() - 3600000).toISOString(),
-      status: 'completed'
-    },
-    {
-      id: "PRT-9213-02",
-      buyerName: "鲍勃",
-      buyerUsername: "bob",
-      totalPrice: 24,
-      items: [
-        { name: "香醇生椰乳拿铁", price: 24, size: "大杯的大口满足 (Large)", sugar: "半糖 (半糖恰到合适)", milk: "生椰厚醇乳 (椰丝清香)", temp: "常温状态", notes: "多去冰" }
-      ],
-      timestamp: new Date().toISOString(),
-      status: 'pending'
-    }
-  ];
+  return [];
 }

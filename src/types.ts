@@ -50,6 +50,7 @@ export interface Order {
 export interface PrintJob {
   id: string;
   orderId?: string;
+  ownerUserId?: string;
   buyerName: string;
   buyerUsername: string;
   totalPrice: number;

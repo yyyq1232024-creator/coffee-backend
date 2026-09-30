@@ -4,7 +4,6 @@ dotenv.config();
 import express from "express";
 import path from "path";
 import crypto from "crypto";
-import fs from "fs/promises";
 import { User, UserRole, UserStatus, Order, PrintJob } from "./src/types.ts";
 import {
   initSqliteDb,
@@ -19,13 +18,14 @@ import {
   getAllOrders,
   insertOrder,
   hashPassword,
+  normalizeEmail,
+  normalizeUsername,
   StoredUser,
   getAllPrintJobs,
   insertPrintJob,
   updatePrintJobStatus,
   clearPrintJobs,
   deletePrintJob,
-  cleanupExpiredPrintJobs
 } from "./src/db.ts";
 
 const app = express();
@@ -35,220 +35,6 @@ app.use(express.json());
 
 // ==================== Shared Server Print Queue Models ====================
 // PrintJob interface is imported from types.ts. Print queue is now persisted in the JSON database.
-
-// ==================== Pseudo-Static User Page Generator ====================
-async function generatePseudoStaticUser(
-  username: string,
-  name: string,
-  email: string,
-  bio: string | undefined,
-  role: string,
-  createdAt: string
-) {
-  try {
-    // Generate physical static-like files inside public/users and public/static-users
-    const staticDir = path.join(process.cwd(), "public", "users");
-    const jsonDir = path.join(process.cwd(), "public", "static-users");
-    
-    await fs.mkdir(staticDir, { recursive: true });
-    await fs.mkdir(jsonDir, { recursive: true });
-    
-    const htmlContent = `<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>悠然咖啡馆 - 会员尊享风味静态凭证 (@${username})</title>
-    <style>
-        body {
-            font-family: 'SF Pro Display', -apple-system, 'Helvetica Neue', 'PingFang SC', sans-serif;
-            background: #F5EFEB;
-            color: #3C2F2F;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-            margin: 0;
-            padding: 20px;
-        }
-        .card {
-            background: white;
-            border-radius: 24px;
-            box-shadow: 0 10px 30px rgba(92, 58, 33, 0.08);
-            border: 1px solid rgba(168, 140, 116, 0.2);
-            width: 100%;
-            max-width: 420px;
-            overflow: hidden;
-            text-align: center;
-        }
-        .header {
-            background: linear-gradient(135deg, #5C3A21, #2D1A12);
-            color: #FAF9F5;
-            padding: 30px 20px;
-        }
-        .logo {
-            font-size: 28px;
-            margin-bottom: 5px;
-        }
-        .title {
-            font-size: 18px;
-            font-weight: 700;
-            letter-spacing: 0.1em;
-            margin: 0;
-        }
-        .subtitle {
-            font-size: 10px;
-            opacity: 0.7;
-            text-transform: uppercase;
-            letter-spacing: 0.15em;
-            margin-top: 5px;
-        }
-        .avatar-container {
-            margin-top: -35px;
-            display: flex;
-            justify-content: center;
-        }
-        .avatar {
-            width: 70px;
-            height: 70px;
-            background: #FAF9F5;
-            border-radius: 50%;
-            border: 4px solid white;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            font-size: 32px;
-        }
-        .content {
-            padding: 24px;
-        }
-        .name {
-            font-size: 20px;
-            font-weight: 700;
-            margin: 10px 0 5px 0;
-            color: #5C3A21;
-        }
-        .username {
-            font-size: 12px;
-            color: #A88C74;
-            margin: 0 0 15px 0;
-            font-family: monospace;
-        }
-        .info-grid {
-            border-top: 1px dashed rgba(168, 140, 116, 0.2);
-            border-bottom: 1px dashed rgba(168, 140, 116, 0.2);
-            padding: 15px 0;
-            margin: 15px 0;
-            text-align: left;
-            font-size: 12px;
-        }
-        .info-row {
-            display: flex;
-            justify-content: space-between;
-            margin-bottom: 8px;
-        }
-        .info-row:last-child {
-            margin-bottom: 0;
-        }
-        .info-label {
-            color: #8C7B72;
-        }
-        .info-value {
-            font-weight: 600;
-        }
-        .bio-box {
-            background: #FAF9F5;
-            border-radius: 12px;
-            padding: 12px;
-            font-size: 11px;
-            color: #6B5B52;
-            line-height: 1.5;
-            font-style: italic;
-            text-align: left;
-        }
-        .footer {
-            background: #FAF9F5;
-            padding: 15px;
-            font-size: 10px;
-            color: #A88C74;
-            border-top: 1px solid rgba(168, 140, 116, 0.15);
-        }
-        .badge {
-            display: inline-block;
-            background: #EADECE;
-            color: #5C3A21;
-            padding: 3px 10px;
-            border-radius: 20px;
-            font-size: 10px;
-            font-weight: bold;
-            margin-top: 5px;
-        }
-        .back-btn {
-            display: inline-block;
-            margin-top: 15px;
-            text-decoration: none;
-            color: #8B5A2B;
-            font-size: 11px;
-            font-weight: bold;
-        }
-    </style>
-</head>
-<body>
-    <div class="card">
-        <div class="header">
-            <div class="logo">☕</div>
-            <h1 class="title">悠然咖啡馆</h1>
-            <div class="subtitle">Leisurely Coffee Club Member</div>
-        </div>
-        <div class="avatar-container">
-            <div class="avatar">👤</div>
-        </div>
-        <div class="content">
-            <div class="name">${name}</div>
-            <div class="username">@${username}</div>
-            <span class="badge">${role === 'admin' ? '👑 大堂最高主理人' : '✨ 纯新手作茶点品鉴官'}</span>
-            
-            <div class="info-grid">
-                <div class="info-row">
-                    <span class="info-label">绑定邮箱:</span>
-                    <span class="info-value">${email}</span>
-                </div>
-                <div class="info-row">
-                    <span class="info-label">入会时间:</span>
-                    <span class="info-value">${new Date(createdAt).toLocaleDateString('zh-CN')}</span>
-                </div>
-                <div class="info-row">
-                    <span class="info-label">凭证状态:</span>
-                    <span class="info-value" style="color: #2e7d32; font-weight: bold;">● 伪静态实体快照已生成</span>
-                </div>
-            </div>
-            
-            <div class="bio-box">
-                "${bio || '此品鉴官非常低调，未留下大堂寄语。'}"
-            </div>
-            
-            <a href="/" class="back-btn">← 返回悠然大堂主页</a>
-        </div>
-        <div class="footer">
-            悠然咖啡馆 · 尊享会员专属风味空间版权所有
-        </div>
-    </div>
-</body>
-</html>`;
-
-    // Save physical static files
-    await fs.writeFile(path.join(staticDir, `${username}.html`), htmlContent, "utf-8");
-    await fs.writeFile(
-      path.join(jsonDir, `${username}.json`), 
-      JSON.stringify({ username, name, email, bio, role, createdAt, staticCacheTime: new Date().toISOString() }, null, 2),
-      "utf-8"
-    );
-    console.log(`[Pseudo-Static Engine] Cached user static snapshot: ${username}.html`);
-  } catch (err) {
-    console.error(`[Pseudo-Static Engine] Failed to generate snapshot for ${username}:`, err);
-  }
-}
 
 // Simple custom interface extending express Request for typing req.user
 interface AuthenticatedRequest extends express.Request {
@@ -317,26 +103,35 @@ const adminMiddleware = (
 
 // Register
 app.post("/api/auth/register", async (req, res) => {
-  console.log("📥 [API] 收到注册请求, 请求体:", req.body);
+  console.log("📥 [API] 收到注册请求");
   const { username, password, name, email, bio } = req.body;
 
-  if (!username || !password || !name || !email) {
-    console.log("⚠️ [API] 注册失败: 必填字段缺失", { username, name, email, hasPassword: !!password });
+  const normalizedUsername = typeof username === "string" ? normalizeUsername(username) : "";
+  const normalizedEmail = typeof email === "string" ? normalizeEmail(email) : "";
+  const normalizedName = typeof name === "string" ? name.trim() : "";
+
+  if (!normalizedUsername || typeof password !== "string" || !normalizedName || !normalizedEmail) {
+    console.log("⚠️ [API] 注册失败: 必填字段缺失");
     res.status(400).json({ success: false, error: "请填写用户名、密码、昵称和邮箱" });
     return;
   }
 
+  if (password.length < 6) {
+    res.status(400).json({ success: false, error: "密码长度应不少于6位" });
+    return;
+  }
+
   try {
-    console.log("🔍 [API] 检查用户名是否已被注册:", username);
-    const existingByUsername = await getStoredUserByUsername(username);
+    console.log("🔍 [API] 检查用户名是否已被注册:", normalizedUsername);
+    const existingByUsername = await getStoredUserByUsername(normalizedUsername);
     if (existingByUsername) {
       console.log("⚠️ [API] 注册失败: 用户名已被注册:", username);
       res.status(400).json({ success: false, error: "此用户名已被注册" });
       return;
     }
 
-    console.log("🔍 [API] 检查邮箱是否已被注册:", email);
-    const existingByEmail = await getStoredUserByEmail(email);
+    console.log("🔍 [API] 检查邮箱是否已被注册:", normalizedEmail);
+    const existingByEmail = await getStoredUserByEmail(normalizedEmail);
     if (existingByEmail) {
       console.log("⚠️ [API] 注册失败: 邮箱已被注册:", email);
       res.status(400).json({ success: false, error: "此邮箱已被注册" });
@@ -347,9 +142,9 @@ app.post("/api/auth/register", async (req, res) => {
     const salt = crypto.randomBytes(16).toString("hex");
     const newUser: StoredUser = {
       id: "user-id-" + crypto.randomBytes(8).toString("hex"),
-      username,
-      name,
-      email,
+      username: normalizedUsername,
+      name: normalizedName,
+      email: normalizedEmail,
       role: "user",
       status: "active",
       bio: bio || "",
@@ -361,9 +156,6 @@ app.post("/api/auth/register", async (req, res) => {
     console.log("💾 [API] 正在向数据库写入新用户:", newUser.id);
     await insertUser(newUser);
     console.log("🎉 [API] 数据库用户写入成功!");
-
-    // Generate pseudo-static cache page
-    await generatePseudoStaticUser(newUser.username, newUser.name, newUser.email, newUser.bio, newUser.role, newUser.createdAt);
 
     const { salt: s, passwordHash: ph, ...safeUser } = newUser;
     res.json({
@@ -379,21 +171,23 @@ app.post("/api/auth/register", async (req, res) => {
 
 // Login
 app.post("/api/auth/login", async (req, res) => {
-  console.log("📥 [API] 收到登录请求, 用户名:", req.body?.username);
+  console.log("📥 [API] 收到登录请求");
   const { username, password } = req.body;
 
-  if (!username || !password) {
+  const identifier = typeof username === "string" ? username.trim().normalize("NFKC") : "";
+
+  if (!identifier || typeof password !== "string" || password.length === 0) {
     console.log("⚠️ [API] 登录失败: 用户名或密码缺失");
     res.status(400).json({ success: false, error: "请输入用户名和密码" });
     return;
   }
 
   try {
-    console.log("🔍 [API] 查询用户记录:", username);
-    const user = await getStoredUserByUsername(username);
+    console.log("🔍 [API] 查询用户记录");
+    const user = await getStoredUserByUsername(identifier) || await getStoredUserByEmail(identifier);
 
     if (!user) {
-      console.log("⚠️ [API] 登录失败: 用户不存在:", username);
+      console.log("⚠️ [API] 登录失败: 用户不存在");
       res.status(400).json({ success: false, error: "用户名或密码错误" });
       return;
     }
@@ -405,9 +199,11 @@ app.post("/api/auth/login", async (req, res) => {
     }
 
     console.log("🔑 [API] 校验密码哈希...");
-    const hashedIn = hashPassword(password, user.salt);
-    if (hashedIn !== user.passwordHash) {
-      console.log("⚠️ [API] 登录失败: 密码不匹配:", username);
+    const hashedIn = Buffer.from(hashPassword(password, user.salt), "hex");
+    const storedHash = Buffer.from(user.passwordHash, "hex");
+    const passwordMatches = hashedIn.length === storedHash.length && crypto.timingSafeEqual(hashedIn, storedHash);
+    if (!passwordMatches) {
+      console.log("⚠️ [API] 登录失败: 密码不匹配");
       res.status(400).json({ success: false, error: "用户名或密码错误" });
       return;
     }
@@ -416,7 +212,7 @@ app.post("/api/auth/login", async (req, res) => {
     const token = "auth-token-" + crypto.randomBytes(16).toString("hex");
     const { salt, passwordHash, ...formatted } = user;
     activeSessions.set(token, formatted);
-    console.log("🎉 [API] 用户登录成功, Token已分发:", username);
+    console.log("🎉 [API] 用户登录成功, Token已分发:", user.username);
 
     res.json({
       success: true,
@@ -472,11 +268,7 @@ app.put("/api/auth/profile", authMiddleware, async (req: AuthenticatedRequest, r
     }
 
     await updateUser(req.user.id, { name, email, bio: bio || "" });
-
     const freshUser = await getUserById(req.user.id);
-    if (freshUser) {
-      await generatePseudoStaticUser(freshUser.username, freshUser.name, freshUser.email, freshUser.bio, freshUser.role, freshUser.createdAt);
-    }
 
     res.json({
       success: true,
@@ -561,9 +353,6 @@ app.post("/api/admin/users", authMiddleware, adminMiddleware, async (req, res) =
 
     await insertUser(newUser);
 
-    // Generate pseudo-static snapshot
-    await generatePseudoStaticUser(newUser.username, newUser.name, newUser.email, newUser.bio, newUser.role, newUser.createdAt);
-
     const { salt: s, passwordHash: ph, ...safeUser } = newUser;
     res.json({
       success: true,
@@ -628,11 +417,7 @@ app.put("/api/admin/users/:id", authMiddleware, adminMiddleware, async (req, res
     }
 
     await updateUser(req.params.id, updates);
-
     const freshUser = await getUserById(req.params.id);
-    if (freshUser) {
-      await generatePseudoStaticUser(freshUser.username, freshUser.name, freshUser.email, freshUser.bio || "", freshUser.role, freshUser.createdAt);
-    }
 
     res.json({
       success: true,
@@ -676,10 +461,10 @@ app.delete("/api/admin/users/:id", authMiddleware, adminMiddleware, async (req, 
 // ==================== Order Transaction Endpoints ====================
 
 // Submit and Pay Checkout
-app.post("/api/orders/checkout", async (req, res) => {
-  const { items, totalPrice, buyerName, buyerUsername, type, jobId } = req.body;
+app.post("/api/orders/checkout", authMiddleware, async (req: AuthenticatedRequest, res) => {
+  const { items, totalPrice, type, jobId } = req.body;
 
-  if (!items || !totalPrice || !buyerName || !type) {
+  if (!Array.isArray(items) || items.length === 0 || !totalPrice || !type || !req.user) {
     res.status(400).json({ success: false, error: "提单失败：遗漏了必要的产品信息、总价或配送形式" });
     return;
   }
@@ -700,8 +485,8 @@ app.post("/api/orders/checkout", async (req, res) => {
       })),
       totalPrice: Number(totalPrice),
       orderTime: new Date().toISOString(),
-      buyerName,
-      buyerUsername: buyerUsername || "guest",
+      buyerName: req.user.name,
+      buyerUsername: req.user.username,
       type: type as 'dine-in' | 'take-away'
     };
 
@@ -738,9 +523,9 @@ app.get("/api/admin/sales", authMiddleware, adminMiddleware, async (req, res) =>
 // ==================== Shared Server-Side Printer Endpoints ====================
 
 // Submit direct print job via /api/print-jobs
-app.post("/api/print-jobs", async (req, res) => {
-  const { jobId, orderId, items, totalPrice, buyerName, buyerUsername } = req.body;
-  if (!items || items.length === 0 || !buyerName) {
+app.post("/api/print-jobs", authMiddleware, async (req: AuthenticatedRequest, res) => {
+  const { jobId, orderId, items, totalPrice } = req.body;
+  if (!Array.isArray(items) || items.length === 0 || !req.user) {
     res.status(400).json({ success: false, error: "打印投递失败：缺少必要品项数据" });
     return;
   }
@@ -751,6 +536,10 @@ app.post("/api/print-jobs", async (req, res) => {
     const existingJobs = await getAllPrintJobs();
     const existing = existingJobs.find(j => j.id === finalJobId);
     if (existing) {
+      if (existing.ownerUserId !== req.user.id) {
+        res.status(409).json({ success: false, error: "该出单编号已被占用，请重新提交" });
+        return;
+      }
       res.json({
         success: true,
         message: "🖨️ 打印任务已存在于队列中。",
@@ -762,9 +551,10 @@ app.post("/api/print-jobs", async (req, res) => {
 
     const newJob: PrintJob = {
       id: finalJobId,
-      orderId: orderId || null,
-      buyerName,
-      buyerUsername: buyerUsername || "guest",
+      orderId: orderId || undefined,
+      ownerUserId: req.user.id,
+      buyerName: req.user.name,
+      buyerUsername: req.user.username,
       totalPrice: Number(totalPrice),
       items: items.map((itm: any) => ({
         name: itm.name,
@@ -783,7 +573,7 @@ app.post("/api/print-jobs", async (req, res) => {
     console.log(`🖨️ [Server Printer] Direct print-jobs task submitted: ${newJob.id}`);
     res.json({
       success: true,
-      message: "🖨️ 打印任务成功添加！",
+      message: "出单任务已提交到吧台，等待店员处理。",
       data: newJob,
       printJobId: finalJobId
     });
@@ -794,17 +584,18 @@ app.post("/api/print-jobs", async (req, res) => {
 });
 
 // Submit any custom print task manually (e.g., printed directly from Wishlist draft card)
-app.post("/api/print/submit", async (req, res) => {
-  const { buyerName, buyerUsername, items, totalPrice } = req.body;
-  if (!items || items.length === 0 || !buyerName) {
+app.post("/api/print/submit", authMiddleware, async (req: AuthenticatedRequest, res) => {
+  const { items, totalPrice } = req.body;
+  if (!Array.isArray(items) || items.length === 0 || !req.user) {
     res.status(400).json({ success: false, error: "打印投递失败：缺少必要品项数据" });
     return;
   }
 
   const newJob: PrintJob = {
     id: "PRT-" + Math.floor(1000 + Math.random() * 9000) + "-" + crypto.randomBytes(3).toString("hex").toUpperCase(),
-    buyerName,
-    buyerUsername: buyerUsername || "guest",
+    ownerUserId: req.user.id,
+    buyerName: req.user.name,
+    buyerUsername: req.user.username,
     totalPrice: Number(totalPrice),
     items: items.map((itm: any) => ({
       name: itm.name,
@@ -824,7 +615,7 @@ app.post("/api/print/submit", async (req, res) => {
     console.log(`🖨️ [Server Printer] Manual print task submitted: ${newJob.id}`);
     res.json({
       success: true,
-      message: "🖨️ 风味配方凭证成功投递至服务器打印队列（共享连接）！",
+      message: "风味配方已提交到吧台出单队列。",
       data: newJob
     });
   } catch (error) {
@@ -834,12 +625,15 @@ app.post("/api/print/submit", async (req, res) => {
 });
 
 // Get current central print queue
-app.get("/api/print/queue", async (req, res) => {
+app.get("/api/print/queue", authMiddleware, async (req: AuthenticatedRequest, res) => {
   try {
     const queue = await getAllPrintJobs();
+    const visibleQueue = req.user?.role === "admin"
+      ? queue
+      : queue.filter((job) => job.ownerUserId === req.user?.id);
     res.json({
       success: true,
-      data: queue
+      data: visibleQueue
     });
   } catch (error) {
     console.error("Fetch print queue error:", error);
@@ -848,9 +642,8 @@ app.get("/api/print/queue", async (req, res) => {
 });
 
 // Execute physical-like print rolling sequence with authentication checks
-app.post("/api/print/:id/execute", async (req, res) => {
+app.post("/api/print/:id/execute", authMiddleware, adminMiddleware, async (req, res) => {
   const { id } = req.params;
-  const { myPrintJobIds = [] } = req.body;
   
   try {
     const jobs = await getAllPrintJobs();
@@ -860,57 +653,13 @@ app.post("/api/print/:id/execute", async (req, res) => {
       return;
     }
 
-    // Authorization check
-    let isAuthorized = false;
-
-    // 1. Try to authenticate via Bearer token
-    const authHeader = req.headers.authorization;
-    if (authHeader && authHeader.startsWith("Bearer ")) {
-      const token = authHeader.substring(7);
-      const user = activeSessions.get(token);
-      if (user) {
-        try {
-          const freshUser = await getUserById(user.id);
-          if (freshUser) {
-            if (freshUser.role === 'admin' || freshUser.username === job.buyerUsername) {
-              isAuthorized = true;
-            }
-          }
-        } catch (e) {
-          console.error("Auth query in print execution failed:", e);
-        }
-      }
-    }
-
-    // 2. Fallback check for guest session using local IDs list
-    if (!isAuthorized) {
-      if (Array.isArray(myPrintJobIds) && myPrintJobIds.includes(id)) {
-        isAuthorized = true;
-      }
-    }
-
-    if (!isAuthorized) {
-      res.status(403).json({ 
-        success: false, 
-        error: "🔒 权限不足！您不能操作该打印任务。任务不属于您，且您当前不是大堂管理员身份。" 
-      });
-      return;
-    }
-
-    await updatePrintJobStatus(id, 'printing');
-    console.log(`🖨️ [Server Printer] Printing job ${id} in progress...`);
-
-    // Simulate server physical printing duration
-    setTimeout(async () => {
-      await updatePrintJobStatus(id, 'completed');
-      console.log(`🖨️ [Server Printer] Printing job ${id} finished successfully.`);
-    }, 2500);
-
-    job.status = 'printing';
+    await updatePrintJobStatus(id, 'completed');
+    console.log(`🧾 [Counter Queue] Job ${id} marked completed by administrator.`);
+    job.status = 'completed';
 
     res.json({
       success: true,
-      message: "🖨️ 服务器打单动作已下发！打印机滚轴正在高速吐出纸质收据...",
+      message: "该订单已由吧台确认完成。",
       data: job
     });
   } catch (error) {
@@ -920,9 +669,8 @@ app.post("/api/print/:id/execute", async (req, res) => {
 });
 
 // Delete/Remove a print job from the central queue (e.g. after customer printed and confirmed)
-app.post("/api/print/:id/delete", async (req, res) => {
+app.post("/api/print/:id/delete", authMiddleware, adminMiddleware, async (req, res) => {
   const { id } = req.params;
-  const { myPrintJobIds = [] } = req.body;
 
   try {
     const jobs = await getAllPrintJobs();
@@ -932,45 +680,8 @@ app.post("/api/print/:id/delete", async (req, res) => {
       return;
     }
 
-    // Authorization check
-    let isAuthorized = false;
-
-    // 1. Try to authenticate via Bearer token
-    const authHeader = req.headers.authorization;
-    if (authHeader && authHeader.startsWith("Bearer ")) {
-      const token = authHeader.substring(7);
-      const user = activeSessions.get(token);
-      if (user) {
-        try {
-          const freshUser = await getUserById(user.id);
-          if (freshUser) {
-            if (freshUser.role === 'admin' || freshUser.username === job.buyerUsername) {
-              isAuthorized = true;
-            }
-          }
-        } catch (e) {
-          console.error("Auth query in print delete failed:", e);
-        }
-      }
-    }
-
-    // 2. Fallback check for guest session using local IDs list
-    if (!isAuthorized) {
-      if (Array.isArray(myPrintJobIds) && myPrintJobIds.includes(id)) {
-        isAuthorized = true;
-      }
-    }
-
-    if (!isAuthorized) {
-      res.status(403).json({ 
-        success: false, 
-        error: "🔒 权限不足！您不能删除该打印任务。" 
-      });
-      return;
-    }
-
     await deletePrintJob(id);
-    console.log(`🖨️ [Server Printer] Print job ${id} confirmed and deleted by user.`);
+    console.log(`🧾 [Counter Queue] Job ${id} deleted by administrator.`);
     res.json({
       success: true,
       message: "🖨️ 服务器打单任务已确认归档并移出队列。"
@@ -982,72 +693,17 @@ app.post("/api/print/:id/delete", async (req, res) => {
 });
 
 // Clear printer queue - Admin only
-app.post("/api/print/clear", async (req, res) => {
-  let isAdmin = false;
-  const authHeader = req.headers.authorization;
-  if (authHeader && authHeader.startsWith("Bearer ")) {
-    const token = authHeader.substring(7);
-    const user = activeSessions.get(token);
-    if (user) {
-      try {
-        const freshUser = await getUserById(user.id);
-        if (freshUser && freshUser.role === 'admin') {
-          isAdmin = true;
-        }
-      } catch (e) {
-        console.error("Auth check in print clear failed:", e);
-      }
-    }
-  }
-
-  if (!isAdmin) {
-    res.status(403).json({ 
-      success: false, 
-      error: "🔒 权限不足！只有大堂系统管理员可以清空共享打印机的全部历史队列。" 
-    });
-    return;
-  }
-
+app.post("/api/print/clear", authMiddleware, adminMiddleware, async (req, res) => {
   try {
     await clearPrintJobs();
     console.log(`🖨️ [Server Printer] Print queue cleared by administrator.`);
     res.json({
       success: true,
-      message: "🖨️ 服务器中央打印机队列已完成清空。"
+      message: "吧台出单记录已清空。"
     });
   } catch (error) {
     console.error("Clear print jobs error:", error);
-    res.status(500).json({ success: false, error: "清空共享打印机队列失败" });
-  }
-});
-
-// ==================== User Pseudo-Static Page Router ====================
-
-app.get("/users/:username.html", async (req, res) => {
-  const { username } = req.params;
-  const filePath = path.join(process.cwd(), "public", "users", `${username}.html`);
-  
-  try {
-    await fs.access(filePath);
-    res.sendFile(filePath);
-  } catch {
-    try {
-      const u = await getStoredUserByUsername(username);
-      if (u) {
-        await generatePseudoStaticUser(u.username, u.name, u.email, u.bio || "", u.role, u.createdAt);
-        res.sendFile(filePath);
-        return;
-      }
-    } catch (err) {
-      console.error("Pseudo-static server compilation fallback failed:", err);
-    }
-    res.status(404).send(`
-      <div style="font-family: sans-serif; text-align: center; padding: 50px; background: #FAF9F5; min-height: 100vh; display: flex; flex-direction: column; justify-content: center; align-items: center; color: #5C3A21;">
-        <h2>☕ 未找到该悠然咖啡客的静态风味档案卡</h2>
-        <p style="color: #A88C74;">该用户可能尚未在大堂中注册。请先注册一个账户，伪静态文件会自动实时生成并供本服务器离线分发。</p>
-        <a href="/" style="color: #8B5A2B; font-weight: bold; text-decoration: none; margin-top: 20px; border: 1px solid #8B5A2B; padding: 8px 16px; border-radius: 8px;">返回大堂</a>
-      </div>
-    `);
+    res.status(500).json({ success: false, error: "清空吧台出单记录失败" });
   }
 });
 
@@ -1059,17 +715,6 @@ async function startServer() {
     await initSqliteDb();
   } catch (error) {
     console.error("❌ Failed to initialize Database:", error);
-  }
-
-  // Pre-generate pseudo-static HTML and JSON profile caches for all users currently in DB
-  try {
-    const allUsers = await getAllUsers();
-    console.log(`🌱 [Startup Pseudo-Static Engine] Pre-generating HTML snapshots for ${allUsers.length} users...`);
-    for (const u of allUsers) {
-      await generatePseudoStaticUser(u.username, u.name, u.email, u.bio || "", u.role, u.createdAt);
-    }
-  } catch (err) {
-    console.error("⚠️ [Startup Pseudo-Static Engine] Failed to pre-generate snapshots:", err);
   }
 
   // Vite dev server mounting in non-production mode
@@ -1089,15 +734,6 @@ async function startServer() {
       res.sendFile(path.join(distPath, "index.html"));
     });
   }
-
-  // Periodically clean up expired pending print jobs (older than 5 minutes) every 30 seconds
-  setInterval(async () => {
-    try {
-      await cleanupExpiredPrintJobs();
-    } catch (err) {
-      console.error("Background print job cleanup interval error:", err);
-    }
-  }, 30000);
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`[USER DB ADMIN SYSTEM] Server running on http://localhost:${PORT}`);

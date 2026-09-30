@@ -31,7 +31,7 @@ export default function LoginForm({ onLoginSuccess, onSwitchToRegister, onBackTo
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ username: username.trim(), password }),
+        body: JSON.stringify({ username: username.trim().normalize('NFKC'), password }),
       });
 
       const contentType = response.headers.get('content-type');
@@ -47,7 +47,11 @@ export default function LoginForm({ onLoginSuccess, onSwitchToRegister, onBackTo
 
       onLoginSuccess(result.data.token, result.data.user);
     } catch (err: any) {
-      setError(err.message || '网络连接异常故障，请检查服务器是否正常运行');
+      setError(
+        err instanceof TypeError
+          ? '无法连接登录服务。请在项目目录运行 npm run dev，并通过显示的网址打开网站。'
+          : err.message || '网络连接异常故障，请检查服务器是否正常运行'
+      );
     } finally {
       setLoading(false);
     }
@@ -80,12 +84,13 @@ export default function LoginForm({ onLoginSuccess, onSwitchToRegister, onBackTo
             type="text"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
-            placeholder="用户名"
-            className="w-full bg-[#EAEAEA] text-black font-semibold placeholder:text-stone-500 placeholder:font-semibold rounded-none py-3.5 px-4 text-xs tracking-wider uppercase border-none focus:outline-none focus:ring-2 focus:ring-white transition-all duration-200"
+            placeholder="用户名（区分大小写）或电子邮箱"
+            className="w-full bg-[#EAEAEA] text-black font-semibold placeholder:text-stone-500 placeholder:font-semibold rounded-none py-3.5 px-4 text-xs tracking-wider border-none focus:outline-none focus:ring-2 focus:ring-white transition-all duration-200"
             disabled={loading}
             required
             autoComplete="username"
           />
+          <p className="mt-1.5 text-[9px] text-stone-500 tracking-wide">用户名和密码均区分英文字母大小写；邮箱不区分。</p>
         </div>
 
         <div className="relative">
@@ -94,7 +99,7 @@ export default function LoginForm({ onLoginSuccess, onSwitchToRegister, onBackTo
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             placeholder="密码"
-            className="w-full bg-[#EAEAEA] text-black font-semibold placeholder:text-stone-500 placeholder:font-semibold rounded-none py-3.5 pl-4 pr-16 text-xs tracking-wider uppercase border-none focus:outline-none focus:ring-2 focus:ring-white transition-all duration-200"
+            className="w-full bg-[#EAEAEA] text-black font-semibold placeholder:text-stone-500 placeholder:font-semibold rounded-none py-3.5 pl-4 pr-16 text-xs tracking-wider border-none focus:outline-none focus:ring-2 focus:ring-white transition-all duration-200"
             disabled={loading}
             required
             autoComplete="current-password"

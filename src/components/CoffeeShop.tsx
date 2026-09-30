@@ -3,45 +3,8 @@ import {
   Coffee, Heart, Trash2, Plus, Sparkles, Check, 
   MapPin, Phone, Mail, FileText, Send, Share2, Printer, X, ChevronDown
 } from 'lucide-react';
-import { motion } from 'motion/react';
 import { User as UserType } from '../types';
-
-const storyContainerVariants = {
-  hidden: { opacity: 0 },
-  visible: {
-    opacity: 1,
-    transition: {
-      staggerChildren: 0.12,
-      delayChildren: 0.05,
-    }
-  }
-};
-
-const slideUpVariants = {
-  hidden: { opacity: 0, y: 35 },
-  visible: { 
-    opacity: 1, 
-    y: 0,
-    transition: { 
-      type: "spring" as const, 
-      stiffness: 65, 
-      damping: 15
-    }
-  }
-};
-
-const slideDownVariants = {
-  hidden: { opacity: 0, y: -35 },
-  visible: { 
-    opacity: 1, 
-    y: 0,
-    transition: { 
-      type: "spring" as const, 
-      stiffness: 65, 
-      damping: 15
-    }
-  }
-};
+import CoffeeHome from './CoffeeHome';
 
 interface CoffeeShopProps {
   user: UserType | null;
@@ -75,6 +38,7 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
   const handleTabClick = (tab: 'home' | 'menu' | 'builder' | 'wishlist' | 'about' | 'contact' | 'printer') => {
     setOpenDropdown(null);
     setActiveTab(tab);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   // Close dropdowns when clicking outside
@@ -144,8 +108,6 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
               img: itm.img
             })),
             totalPrice: totalWishlistPrice,
-            buyerName: user ? user.name : "自助常旅客",
-            buyerUsername: user ? user.username : "guest",
             type: receiptType
           })
         });
@@ -168,7 +130,7 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
       setLastPrintJobId(jobId);
       setShowReceipt(true);
 
-      alert('🎉 订单支付及入账成功！系统已为您生成提单凭证。您可点击下方「共享打单并出纸」进行吧台实时实体出单，或者直接点击「关闭」暂不打印（稍后您也可以在大堂选项卡自行补打）。');
+      alert('🎉 订单支付及入账成功！系统已生成提单凭证。您可提交到吧台出单，也可以先关闭，稍后再查看。');
     } catch (e: any) {
       alert(`下单支付出错: ${e.message}`);
     } finally {
@@ -202,9 +164,7 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
             temp: itm.temp,
             notes: itm.notes ? (itm.notes.includes('【客座') ? itm.notes : `${itm.notes} ${notesString}`) : notesString
           })),
-          totalPrice: finalPrice,
-          buyerName: user ? user.name : "自助常旅客",
-          buyerUsername: user ? user.username : "guest"
+          totalPrice: finalPrice
         })
       });
 
@@ -213,43 +173,19 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
         throw new Error(printJobsData.error || '创建中央打印机队列任务失败');
       }
 
-      // Add to print queue state immediately
-      const newJob = {
-        id: lastPrintJobId,
-        orderId: receiptNumber,
-        buyerName: user ? user.name : "自助常旅客",
-        buyerUsername: user ? user.username : "guest",
-        totalPrice: finalPrice,
-        items: itemsToPrint.map((itm) => ({
-          name: itm.name,
-          price: itm.price,
-          size: itm.size,
-          sugar: itm.sugar,
-          milk: itm.milk,
-          temp: itm.temp,
-          notes: itm.notes ? (itm.notes.includes('【客座') ? itm.notes : `${itm.notes} ${notesString}`) : notesString
-        })),
-        timestamp: new Date().toISOString(),
-        status: 'pending' as const
-      };
-
-      const nextIds = myPrintJobIds.includes(lastPrintJobId) ? myPrintJobIds : [...myPrintJobIds, lastPrintJobId];
-      recordMyPrintJobId(lastPrintJobId);
-      
       setPrintQueue(prev => {
         const filtered = prev.filter(j => j.id !== lastPrintJobId);
-        return [newJob, ...filtered];
+        return [printJobsData.data, ...filtered];
       });
 
       // Close modal and navigate
       setShowReceipt(false);
       setActiveTab('printer');
 
-      // Instantly trigger execution (print and roll out) with current fresh updatedMyPrintJobIds array
-      await handleExecutePrint(lastPrintJobId, nextIds);
+      alert('已提交到吧台出单队列，店员处理后状态会自动更新。');
 
     } catch (e: any) {
-      alert(`提交并执行打印任务出错: ${e.message}`);
+      alert(`提交吧台出单任务失败: ${e.message}`);
     }
   };
 
@@ -351,73 +287,28 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
     localStorage.setItem(storageKey, JSON.stringify(newWishlist));
   };
 
-  // ==================== Shared Server-Side Printer Integration ====================
+  // ==================== Authenticated Counter Order Queue ====================
   const [printQueue, setPrintQueue] = useState<any[]>([]);
   const [isQueueLoading, setIsQueueLoading] = useState(false);
   const [executingJobId, setExecutingJobId] = useState<string | null>(null);
-  const [showAllSharedQueue, setShowAllSharedQueue] = useState(false);
-  const [now, setNow] = useState(Date.now());
-
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setNow(Date.now());
-    }, 1000);
-    return () => clearInterval(timer);
-  }, []);
-
-  const [myPrintJobIds, setMyPrintJobIds] = useState<string[]>(() => {
-    try {
-      const saved = localStorage.getItem('my_print_job_ids');
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
-
-  const recordMyPrintJobId = (id: string) => {
-    setMyPrintJobIds(prev => {
-      const next = prev.includes(id) ? prev : [...prev, id];
-      localStorage.setItem('my_print_job_ids', JSON.stringify(next));
-      return next;
-    });
-  };
-
-  const filteredPrintQueue = printQueue.filter(job => {
-    if (user?.role === 'admin' && showAllSharedQueue) return true;
-    if (user && job.buyerUsername === user.username) return true;
-    if (myPrintJobIds.includes(job.id)) return true;
-    return false;
-  });
-
-  const getJobCountdown = (job: any) => {
-    if (job.status !== 'pending') return null;
-    const jobTime = new Date(job.timestamp).getTime();
-    const expiryTime = jobTime + 5 * 60 * 1000;
-    const secondsLeft = Math.max(0, Math.floor((expiryTime - now) / 1000));
-    
-    if (secondsLeft <= 0) {
-      return { text: "⏳ 正在清理...", expired: true, secondsLeft };
-    }
-    
-    const minutes = Math.floor(secondsLeft / 60);
-    const seconds = secondsLeft % 60;
-    return {
-      text: `⏳ ${minutes}分${seconds.toString().padStart(2, '0')}秒`,
-      expired: false,
-      secondsLeft
-    };
-  };
+  const filteredPrintQueue = printQueue;
 
   const fetchPrintQueue = async (silent = false) => {
+    if (!token) {
+      setPrintQueue([]);
+      return;
+    }
     if (!silent) setIsQueueLoading(true);
     try {
-      const res = await fetch('/api/print/queue');
+      const res = await fetch('/api/print/queue', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
       const data = await res.json();
       if (res.ok && data.success) {
         setPrintQueue(data.data);
       }
     } catch (e) {
-      console.error("Failed to fetch shared printer queue:", e);
+      console.error("Failed to fetch counter order queue:", e);
     } finally {
       if (!silent) setIsQueueLoading(false);
     }
@@ -433,48 +324,34 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
     }, 4000);
 
     return () => clearInterval(interval);
-  }, []);
+  }, [token]);
 
   // Instantly re-sync print queue from server when user switches to 'printer' tab
   useEffect(() => {
     if (activeTab === 'printer') {
       fetchPrintQueue(false); // Show loading spinner for active user interaction
     }
-  }, [activeTab]);
+  }, [activeTab, token]);
 
-  const canManageJob = (job: any) => {
-    if (user?.role === 'admin') return true;
-    if (user && job.buyerUsername === user.username) return true;
-    if (myPrintJobIds.includes(job.id)) return true;
-    return false;
-  };
+  const canManageJob = (_job?: any) => user?.role === 'admin';
 
-  const handleExecutePrint = async (jobId: string, updatedMyPrintJobIds?: string[]) => {
+  const handleExecutePrint = async (jobId: string) => {
     setExecutingJobId(jobId);
     try {
-      const currentJobIds = updatedMyPrintJobIds || myPrintJobIds;
-
       const res = await fetch(`/api/print/${jobId}/execute`, { 
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-        },
-        body: JSON.stringify({ myPrintJobIds: currentJobIds })
+        }
       });
       const data = await res.json();
       if (!res.ok || !data.success) {
         throw new Error(data.error || "打单失败");
       }
       
-      // Instantly mark local status to printing
-      setPrintQueue(prev => prev.map(j => j.id === jobId ? { ...j, status: 'printing' } : j));
-      
-      // Let the rolling print animation complete, then re-sync queue
-      setTimeout(() => {
-        fetchPrintQueue(true);
-        setExecutingJobId(null);
-      }, 2600);
+      setPrintQueue(prev => prev.map(j => j.id === jobId ? { ...j, status: 'completed' } : j));
+      setExecutingJobId(null);
       
     } catch (e: any) {
       alert(`打单指令下发失败: ${e.message}`);
@@ -489,8 +366,7 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
         headers: {
           'Content-Type': 'application/json',
           ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-        },
-        body: JSON.stringify({ myPrintJobIds })
+        }
       });
       const data = await res.json();
       if (!res.ok || !data.success) {
@@ -509,7 +385,7 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
   };
 
   const handleClearPrintQueue = async () => {
-    if (!confirm("⚠️ 确定要清空大堂共享打印机的所有历史队列吗？这会同步影响所有人的大屏展示。")) return;
+    if (!confirm("确定要清空吧台的全部出单记录吗？")) return;
     try {
       const res = await fetch('/api/print/clear', { 
         method: 'POST',
@@ -531,13 +407,18 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
 
   const handleManualPrintFromWishlist = async () => {
     if (wishlist.length === 0) return;
+    if (!user || !token) {
+      setShowLoginModal(true);
+      return;
+    }
     try {
       const res = await fetch('/api/print/submit', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify({
-          buyerName: user ? user.name : "自助特调师",
-          buyerUsername: user ? user.username : "guest",
           items: wishlist,
           totalPrice: totalWishlistPrice
         })
@@ -545,11 +426,7 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || "发送打印失败");
       
-      if (data.data?.id) {
-        recordMyPrintJobId(data.data.id);
-      }
-
-      alert("🖨️ 手作风味单已实时投递至服务器打印队列！已通过共享通道连接。请点击「🖨️ 共享打单」选项卡查看纸张滚出。");
+      alert("手作风味单已提交到吧台。请到「吧台出单」查看处理进度。");
       fetchPrintQueue(true);
     } catch (e: any) {
       alert(`发送服务器打印出错: ${e.message}`);
@@ -730,7 +607,7 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
     <div id="coffee-shop-container" className="w-full">
 
       {/* Premium Minimal Header with Dropdowns */}
-      <div className="max-w-6xl mx-auto px-4 pt-8 pb-2 w-full">
+      <div className={activeTab === 'home' ? 'hidden' : 'max-w-6xl mx-auto px-4 pt-8 pb-2 w-full'}>
         <div id="cozy-premium-header" className="flex flex-col sm:flex-row items-center justify-between border-b border-[#A88C74]/20 pb-6 mb-8 gap-4 relative">
           
           {/* Left Side: Editorial Brand Logo */}
@@ -786,7 +663,7 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
                     onClick={() => handleTabClick('printer')}
                     className={`w-full text-left px-4 py-2 text-xs font-serif font-bold hover:bg-[#EADECE]/30 transition flex items-center justify-between ${activeTab === 'printer' ? 'text-[#8B5A2B] bg-[#EADECE]/15' : ''}`}
                   >
-                    <span className="whitespace-nowrap">共享热敏打单</span>
+                    <span className="whitespace-nowrap">吧台出单</span>
                     {printQueue.filter(j => j.status === 'pending').length > 0 && (
                       <span className="bg-amber-700 text-white font-mono text-[9px] px-1.5 py-0.5 rounded-full font-bold ml-2">
                         {printQueue.filter(j => j.status === 'pending').length}
@@ -937,153 +814,13 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
 
       {/* Conditional Active Tab Content rendering */}
       {activeTab === 'home' && (
-        <div id="cozy-home-screen" className="w-full flex flex-col relative animate-fadeIn select-none bg-black">
-          {[
-            {
-              id: 1,
-              title: "ORIGIN",
-              category: "01 / DIRECT TRADE BEANS",
-              subtitle: "甄选单源原产庄园豆",
-              desc: "每一粒生豆均产自海拔1800米以上的优质原产地遮阴山物候区。我们执着于黄金产地的耶加雪菲与顶级瑰夏拼配，以物理锁水工艺锁闭更丰富、深邃的柑橘调与红茶般清澈的花果香气，不添加任何人工香精，还原手作纯真。",
-              img: "https://images.unsplash.com/photo-1447933601403-0c6688de566e?auto=format&fit=crop&w=1200&q=80"
-            },
-            {
-              id: 2,
-              title: "BREW",
-              category: "02 / ARTISANAL EXTRACTION",
-              subtitle: "慢煮光阴，星级匠心执壶",
-              desc: "这里的冲滤拒绝任何冰冷、千篇一律的胶囊机或快餐自动化量产。我们经验丰富的星级咖啡品鉴师将根据当日的气温、湿度和空气含水率，精密调节水温、水流注入速度及闷蒸秒数，让每一毫升的醇香滴落都成为艺术品。",
-              img: "https://images.unsplash.com/photo-1514432324607-a09d9b4aefdd?auto=format&fit=crop&w=1200&q=80"
-            },
-            {
-              id: 3,
-              title: "SPACE",
-              category: "03 / COZY JAZZ RETREAT",
-              subtitle: "极简木构声影与黑胶留白",
-              desc: "古典中式传统木构与冷峻现代的水泥光影在这里奇妙汇聚。摒弃一切浮躁杂音，只有静静转动的复古黑胶唱机、轻快舒缓的轻爵士乐、和满屋四溢的慢煮醇香。在这里，您可以安全脱离喧嚣，寻一处心灵的疗愈避难所。",
-              img: "https://images.unsplash.com/photo-1498804103079-a6351b050096?auto=format&fit=crop&w=1200&q=80"
-            },
-            {
-              id: 4,
-              title: "MEMORIES",
-              category: "04 / TACTILE EXPERIENCE",
-              subtitle: "纸短情长，共享打单仪式",
-              desc: "我们坚信具有温度的手作不仅应存在于味蕾，更应在触觉上留下印记。在这里，您的专属定制特调配方均可极速同步到我们前台的共享热敏打印机。出单的那一刻，带给您带着温热墨香的精美小票。让美好的回忆被握在指尖。",
-              img: "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&w=1200&q=80"
-            }
-          ].map((sec, idx) => (
-            <div key={sec.id} className="relative w-full flex flex-col md:flex-row md:min-h-screen">
-              {/* Left Column: Sticky Image (Story ID badge removed per user request) */}
-              <div className="w-full md:w-1/2 h-[60vh] md:h-screen md:sticky md:top-0 z-10 overflow-hidden">
-                <img 
-                  src={sec.img} 
-                  alt={sec.title} 
-                  className="w-full h-full object-cover filter brightness-[0.82] transition-transform duration-700 hover:scale-105" 
-                  referrerPolicy="no-referrer"
-                />
-              </div>
-
-              {/* Right Column: Narrative with custom scroll animations */}
-              <div className="w-full md:w-1/2 min-h-[50vh] md:min-h-screen flex flex-col justify-center p-8 md:p-16 lg:p-24 bg-black text-[#FAF9F5] border-t md:border-t-0 md:border-l border-stone-900">
-                <motion.div 
-                  initial="hidden"
-                  whileInView="visible"
-                  viewport={{ once: false, amount: 0.15 }}
-                  variants={storyContainerVariants}
-                  className="max-w-md space-y-6"
-                >
-                  <motion.span 
-                    variants={idx % 2 === 0 ? slideUpVariants : slideDownVariants}
-                    className="text-[#C49A6C] font-mono text-[10px] tracking-[0.3em] uppercase block"
-                  >
-                    {sec.category}
-                  </motion.span>
-                  <motion.h2 
-                    variants={idx % 2 === 0 ? slideUpVariants : slideDownVariants}
-                    className="text-5xl md:text-7xl font-black tracking-widest text-white leading-none font-sans uppercase"
-                  >
-                    {sec.title}.
-                  </motion.h2>
-                  <motion.div 
-                    variants={idx % 2 === 0 ? slideUpVariants : slideDownVariants}
-                    className="h-[1px] w-12 bg-[#C49A6C]/40" 
-                  />
-                  <motion.h3 
-                    variants={idx % 2 === 0 ? slideUpVariants : slideDownVariants}
-                    className="text-lg md:text-xl font-bold text-stone-200 tracking-wide font-serif"
-                  >
-                    {sec.subtitle}
-                  </motion.h3>
-                  <motion.p 
-                    variants={idx % 2 === 0 ? slideUpVariants : slideDownVariants}
-                    className="text-stone-400 text-xs md:text-sm leading-relaxed tracking-wide font-light"
-                  >
-                    {sec.desc}
-                  </motion.p>
-                  
-                  {sec.id === 2 && (
-                    <motion.div 
-                      variants={idx % 2 === 0 ? slideUpVariants : slideDownVariants}
-                      className="pt-4"
-                    >
-                      <button 
-                        onClick={() => handleTabClick('menu')}
-                        className="px-6 py-3 bg-[#FAF9F5]/10 hover:bg-[#FAF9F5]/25 text-[#FAF9F5] text-[10px] tracking-widest font-extrabold uppercase border border-white/20 transition cursor-pointer active:scale-95"
-                      >
-                        品鉴手作点心单 📖
-                      </button>
-                    </motion.div>
-                  )}
-                  {sec.id === 4 && (
-                    <motion.div 
-                      variants={idx % 2 === 0 ? slideUpVariants : slideDownVariants}
-                      className="pt-4"
-                    >
-                      <button 
-                        onClick={() => handleTabClick('printer')}
-                        className="px-6 py-3 bg-[#FAF9F5]/10 hover:bg-[#FAF9F5]/25 text-[#FAF9F5] text-[10px] tracking-widest font-extrabold uppercase border border-white/20 transition cursor-pointer active:scale-95"
-                      >
-                        探访共享打单处 🖨️
-                      </button>
-                    </motion.div>
-                  )}
-                </motion.div>
-              </div>
-            </div>
-          ))}
-
-          {/* Persistent sync locking CTA bottom banner */}
-          <div className="w-full bg-[#111] py-20 px-6 border-t border-stone-950 text-center text-[#FAF9F5]">
-            <div className="max-w-2xl mx-auto space-y-5">
-              <span className="text-[#C49A6C] font-mono text-[10px] tracking-[0.35em] uppercase block">
-                ★ COZY MEMBER SYSTEM ★
-              </span>
-              <h3 className="text-2xl font-serif font-bold text-white tracking-wide">
-                开启云端数据同步，永久封存高定秘方
-              </h3>
-              <p className="text-xs text-stone-400 leading-relaxed max-w-lg mx-auto font-light">
-                一键登录标准管理账号，立刻与大堂复古热敏打印机建立实时连结，安全存储您的个人特调配方。
-              </p>
-              <div className="pt-4 flex justify-center gap-4">
-                {user ? (
-                  <button 
-                    onClick={() => handleTabClick('wishlist')}
-                    className="px-6 py-3 bg-white hover:bg-stone-200 text-black text-xs font-black tracking-widest uppercase transition duration-200 border-none cursor-pointer font-serif active:scale-95 shadow-lg"
-                  >
-                    📓 查看我的高定特调簿
-                  </button>
-                ) : (
-                  <button 
-                    onClick={onNavigateToLogin}
-                    className="px-6 py-3 bg-white hover:bg-stone-200 text-black text-xs font-black tracking-widest uppercase transition duration-200 border-none cursor-pointer font-serif active:scale-95 shadow-lg"
-                  >
-                    🔓 授权会员登录
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
+        <CoffeeHome
+          user={user}
+          onNavigate={handleTabClick}
+          onNavigateToLogin={onNavigateToLogin}
+          onNavigateToRegister={onNavigateToRegister}
+          onLogout={onLogout}
+        />
       )}
 
       {activeTab !== 'home' && (
@@ -1897,7 +1634,7 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
                     )}
                   </button>
                   <p className="text-[9px] text-stone-400 text-center leading-normal">
-                    * 支付成功后将立刻获取纸质风味纪念小票。您不仅可以本地复打，服务器共享热敏机也将立刻获取打单任务！
+                    * 支付成功后会生成电子提单；提交到吧台后，店员可统一处理并更新状态。
                   </p>
                 </div>
               </div>
@@ -2072,11 +1809,11 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
             <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full translate-x-12 -translate-y-12 pointer-events-none" />
             <div className="relative z-10 space-y-3">
               <span className="text-[10px] bg-[#C49A6C] text-[#FAF9F5] px-2.5 py-1 rounded-full font-bold uppercase tracking-widest">
-                🖨️ 吧台打印中心 (Bar Printing Console)
+                🧾 悠然取单 (ORDER PICKUP)
               </span>
-              <h2 className="text-xl md:text-2xl font-bold font-serif">大堂中央网络热敏打印服务器</h2>
+              <h2 className="text-xl md:text-2xl font-bold font-serif">{user?.role === 'admin' ? '今日吧台订单' : '我的取单进度'}</h2>
               <p className="text-stone-300 text-xs leading-relaxed max-w-2xl font-light">
-                本控制台与悠然吧台的网络热敏打印机实时直连。每当客人在大堂中下单支付、或投递私人定制的风味茶点配方时，数据都将通过网络即时同步至此服务器。您可以实时监测出纸进纸状态。
+                点单完成后，您的风味清单会同步至吧台。咖啡师将按顺序制作，每一次进度更新都会在这里呈现；看到“已完成”后，凭订单号前往吧台取单即可。
               </p>
               <div className="flex flex-wrap gap-4 pt-2 text-[10px] text-stone-300 font-mono">
                 <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" /> 通信状态: 在线联机 (Connected)</span>
@@ -2093,7 +1830,7 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
             <div className="md:col-span-5 bg-stone-100 border border-stone-250 rounded-3xl p-6 flex flex-col items-center justify-center text-center space-y-4 shadow-inner relative overflow-hidden">
               <div className="absolute inset-0 bg-[radial-gradient(#8B5A2B_1px,transparent_1.5px)] [background-size:24px_24px] opacity-5 pointer-events-none" />
               
-              <h3 className="text-[10px] font-black text-stone-700 tracking-wider font-serif uppercase">★ 吧台热敏打印机实体 ★</h3>
+              <h3 className="text-[10px] font-black text-stone-700 tracking-wider font-serif uppercase">★ 从研磨到出杯 ★</h3>
               
               {/* The physical printer container */}
               <div className="w-48 h-36 bg-stone-800 rounded-t-3xl border-4 border-stone-700 shadow-md relative flex flex-col justify-end">
@@ -2145,7 +1882,7 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
               <div className="space-y-1.5">
                 <p className="text-[11px] font-bold text-stone-700">悠然堂舍一号机 (Bar Printer #1)</p>
                 <p className="text-[10px] text-stone-500 max-w-[200px] mx-auto leading-normal">
-                  采用203DPI精细针头热敏出纸技术。当您在右侧点击“下达打单指令”时，此纸卷会执行吐纸动画并模拟物理进纸动作。
+                  从称量、研磨到萃取与出杯，每一道工序都由咖啡师依单完成。您可以在右侧查看进度，慢慢期待这一杯抵达手中。
                 </p>
               </div>
 
@@ -2173,37 +1910,29 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
               <div className="flex flex-wrap items-center justify-between gap-3 bg-stone-50 border border-stone-200 p-4 rounded-2xl">
                 <div className="space-y-1">
                   <h3 className="text-sm font-bold text-[#5C3A21] font-serif flex items-center gap-1.5 m-0">
-                    <span>🗂️</span> {user?.role === 'admin' && showAllSharedQueue ? "大堂全店打单池" : "我的专属打单池"} ({filteredPrintQueue.length} 笔任务)
+                    <span>🗂️</span> {user?.role === 'admin' ? "今日制作清单" : "我的取单清单"} ({filteredPrintQueue.length} 笔订单)
                   </h3>
                   <p className="text-[10px] text-stone-500 m-0">
-                    {user?.role === 'admin' && showAllSharedQueue ? "⚠️ 管理员监控中：当前已列出全店其他所有并发客人的打印实体单" : "🔒 顾客专属保护：仅显示您自己在当前客户端下单并执行打单的凭证"}
+                    {user?.role === 'admin' ? "订单依提交时间排列，请按制作进度及时更新状态" : "订单完成后，请凭单号前往吧台取单"}
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
-                  {user?.role === 'admin' && (
-                    <button
-                      onClick={() => setShowAllSharedQueue(!showAllSharedQueue)}
-                      className="px-3 py-1.5 bg-white hover:bg-stone-100 text-stone-700 border border-stone-300 rounded-xl text-[10px] font-bold cursor-pointer transition duration-150 active:scale-95"
-                    >
-                      {showAllSharedQueue ? "👤 仅看我的" : "👥 查看全店"}
-                    </button>
-                  )}
                   <span className="text-[9px] bg-amber-50 text-[#8B5A2B] border border-amber-200 px-2 py-1 rounded-full font-mono flex items-center gap-1">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                    4s自动轮询
+                    实时同步
                   </span>
                 </div>
               </div>
 
               {isQueueLoading ? (
                 <div className="p-12 text-center text-stone-400 bg-white border border-stone-200 rounded-3xl">
-                  正在与大堂服务器建立高速打印管道，拉取数据中...
+                  正在同步吧台出单状态...
                 </div>
               ) : filteredPrintQueue.length === 0 ? (
                 <div className="p-12 text-center text-stone-400 bg-white border border-stone-200 rounded-3xl space-y-3">
-                  <p className="text-sm font-bold">🖨️ 您的专属打单队列当前为空</p>
+                  <p className="text-sm font-bold">当前没有待处理的出单任务</p>
                   <p className="text-xs leading-normal max-w-sm mx-auto text-stone-500">
-                    您已付款的订单将作为提单凭证储存在您的账户中。您可以点击购物车支付弹出的收据页中的「共享打单并出纸」下达指令，或者在此大堂手动投递。
+                    已付款订单会保存在您的账户中。点击收据上的「提交吧台出单」即可进入处理队列。
                   </p>
                   <div className="pt-2">
                     <button 
@@ -2233,21 +1962,11 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
                           <span className="font-bold text-stone-700">顾客: {job.buyerName} (@{job.buyerUsername})</span>
                           <span className="text-stone-300">|</span>
                           <span className="text-stone-400 font-mono">{new Date(job.timestamp).toLocaleTimeString()}</span>
-                          {job.status === 'pending' && (() => {
-                            const countdown = getJobCountdown(job);
-                            return countdown ? (
-                              <>
-                                <span className="text-stone-300">|</span>
-                                <span className={`font-mono px-2 py-0.5 rounded-full font-bold flex items-center gap-1 text-[9px] ${
-                                  countdown.secondsLeft < 60 
-                                    ? 'bg-red-50 text-red-600 border border-red-200 animate-pulse' 
-                                    : 'bg-[#5C3A21]/5 text-[#5C3A21] border border-[#5C3A21]/15'
-                                }`}>
-                                  {countdown.text}
-                                </span>
-                              </>
-                            ) : null;
-                          })()}
+                          {job.status === 'pending' && (
+                            <span className="font-mono px-2 py-0.5 rounded-full font-bold text-[9px] bg-amber-50 text-amber-700 border border-amber-200">
+                              等待吧台处理
+                            </span>
+                          )}
                         </div>
 
                         {/* Items listed */}
@@ -2279,31 +1998,31 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
                               className="w-full py-2.5 bg-amber-600 hover:bg-amber-700 text-[#FAF9F5] rounded-xl transition font-black cursor-pointer text-xs border-none flex items-center justify-center gap-1 disabled:opacity-50"
                             >
                               <Printer className="w-3.5 h-3.5" />
-                              <span>下达打单指令</span>
+                              <span>确认出单完成</span>
                             </button>
                           ) : (
-                            <div className="w-full py-2.5 bg-stone-100 text-stone-400 rounded-xl text-center font-bold text-xs border border-stone-200 select-none flex items-center justify-center gap-1" title="仅该订单拥有者或系统管理员有权执行此打印任务">
-                              <span>🔒 他人专属单</span>
+                            <div className="w-full py-2.5 bg-stone-100 text-stone-500 rounded-xl text-center font-bold text-xs border border-stone-200 select-none flex items-center justify-center gap-1">
+                              <span>等待吧台处理</span>
                             </div>
                           )
                         )}
                         {job.status === 'printing' && (
                           <div className="w-full py-2.5 bg-amber-50 text-amber-800 rounded-xl text-center font-bold flex items-center justify-center gap-1.5 border border-amber-200">
                             <span className="w-2.5 h-2.5 rounded-full border-2 border-amber-600 border-t-transparent animate-spin" />
-                            <span className="text-xs">出纸吐单中...</span>
+                            <span className="text-xs">吧台处理中...</span>
                           </div>
                         )}
                         {job.status === 'completed' && (
                           <div className="space-y-1 w-full">
                             <div className="w-full py-1.5 bg-emerald-50 text-emerald-800 rounded-xl text-center font-bold flex items-center justify-center gap-1 border border-emerald-200 text-[11px]">
-                              <span>✓ 物理打单完毕</span>
+                              <span>✓ 已完成，可取单</span>
                             </div>
                             {canManageJob(job) && (
                               <button
                                 onClick={() => handleConfirmAndDeleteJob(job.id)}
                                 className="w-full py-2 bg-[#5C3A21] hover:bg-red-800 text-[#FAF9F5] rounded-xl transition font-black cursor-pointer text-xs border-none flex items-center justify-center gap-1 active:scale-95"
                               >
-                                <span>🙋 我已取纸确认 (销单)</span>
+                                <span>管理员归档</span>
                               </button>
                             )}
                           </div>
@@ -2320,7 +2039,7 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
                             }}
                             className="w-full py-1.5 bg-stone-50 hover:bg-stone-100 text-stone-600 rounded-xl transition text-[10px] cursor-pointer border border-stone-200 flex items-center justify-center gap-1"
                           >
-                            <span>本地预览/复打</span>
+                            <span>查看订单</span>
                           </button>
                         )}
                       </div>
@@ -2429,7 +2148,7 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
                 className="flex-1 py-2 bg-[#5C3A21] hover:bg-[#452b19] text-white text-[10px] font-bold rounded-lg transition border-none cursor-pointer flex items-center justify-center gap-1 font-serif active:scale-95"
               >
                 <Printer className="w-3.5 h-3.5" />
-                共享打单并出纸
+                提交吧台出单
               </button>
               <button
                 onClick={() => {
@@ -2447,12 +2166,12 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
               const lastJob = printQueue.find(j => j.id === lastPrintJobId);
               return (
                 <div className="mt-3.5 pt-3.5 border-t border-stone-200 space-y-2">
-                  {lastJob?.status === 'completed' && (
+                  {lastJob?.status === 'completed' && user?.role === 'admin' && (
                     <button
                       onClick={() => handleConfirmAndDeleteJob(lastPrintJobId!)}
                       className="w-full py-2.5 bg-red-800 hover:bg-red-950 text-white font-extrabold text-xs rounded-xl shadow transition duration-200 border-none cursor-pointer flex items-center justify-center gap-1.5 font-serif active:scale-95 mb-1"
                     >
-                      <span>✓ 我已取纸无误 (确认自动销单) ➔</span>
+                      <span>管理员归档此单</span>
                     </button>
                   )}
                   <button
