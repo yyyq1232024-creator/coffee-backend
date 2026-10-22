@@ -4,7 +4,7 @@ dotenv.config();
 import express from "express";
 import path from "path";
 import crypto from "crypto";
-import { User, UserRole, UserStatus, Order, PrintJob } from "./src/types.ts";
+import { User, UserRole, UserStatus, Order, PrintJob, WishlistItem } from "./src/types.ts";
 import {
   initSqliteDb,
   getAllUsers,
@@ -26,6 +26,11 @@ import {
   updatePrintJobStatus,
   clearPrintJobs,
   deletePrintJob,
+  getMenuProducts,
+  updateProductInventory,
+  getWishlistByUserId,
+  replaceWishlist,
+  insertOrderWithInventory,
 } from "./src/db.ts";
 
 const app = express();
@@ -43,6 +48,7 @@ interface AuthenticatedRequest extends express.Request {
 
 // In-memory active sessions mapping: token -> User
 const activeSessions = new Map<string, User>();
+const assistantRateLimits = new Map<string, { count: number; resetAt: number }>();
 
 // Authentication middleware
 const authMiddleware = async (
@@ -458,6 +464,172 @@ app.delete("/api/admin/users/:id", authMiddleware, adminMiddleware, async (req, 
   }
 });
 
+// ==================== Menu, Bean Origin & Wishlist Endpoints ====================
+
+app.get("/api/products", async (_req, res) => {
+  try {
+    res.json({ success: true, data: await getMenuProducts(false) });
+  } catch (error) {
+    console.error("Product retrieval error:", error);
+    res.status(500).json({ success: false, error: "菜单与库存读取失败" });
+  }
+});
+
+app.get("/api/admin/products", authMiddleware, adminMiddleware, async (_req, res) => {
+  try {
+    res.json({ success: true, data: await getMenuProducts(true) });
+  } catch (error) {
+    console.error("Admin product retrieval error:", error);
+    res.status(500).json({ success: false, error: "库存列表读取失败" });
+  }
+});
+
+app.patch("/api/admin/products/:id/inventory", authMiddleware, adminMiddleware, async (req, res) => {
+  const id = Number(req.params.id);
+  const stock = Number(req.body?.stock);
+  const active = req.body?.active !== false;
+  if (!Number.isInteger(id) || !Number.isFinite(stock) || stock < 0 || stock > 9999) {
+    res.status(400).json({ success: false, error: "库存数量必须是0至9999之间的整数" });
+    return;
+  }
+  try {
+    const product = await updateProductInventory(id, Math.floor(stock), active);
+    if (!product) {
+      res.status(404).json({ success: false, error: "未找到该商品" });
+      return;
+    }
+    res.json({ success: true, message: "库存状态已更新", data: product });
+  } catch (error) {
+    console.error("Inventory update error:", error);
+    res.status(500).json({ success: false, error: "库存更新失败" });
+  }
+});
+
+app.get("/api/wishlist", authMiddleware, async (req: AuthenticatedRequest, res) => {
+  try {
+    res.json({ success: true, data: await getWishlistByUserId(req.user!.id) });
+  } catch (error) {
+    console.error("Wishlist retrieval error:", error);
+    res.status(500).json({ success: false, error: "心愿卡读取失败" });
+  }
+});
+
+app.put("/api/wishlist", authMiddleware, async (req: AuthenticatedRequest, res) => {
+  const rawItems = req.body?.items;
+  if (!Array.isArray(rawItems) || rawItems.length > 50) {
+    res.status(400).json({ success: false, error: "心愿卡数据格式不正确或数量超过上限" });
+    return;
+  }
+  const items: WishlistItem[] = rawItems.map((item: any) => ({
+    wishId: String(item.wishId || "").slice(0, 255),
+    itemId: Number.isInteger(Number(item.itemId)) ? Number(item.itemId) : undefined,
+    name: String(item.name || "").slice(0, 255),
+    price: Math.max(0, Number(item.price) || 0),
+    category: String(item.category || "coffee").slice(0, 50),
+    img: String(item.img || "").slice(0, 1000),
+    sugar: String(item.sugar || "").slice(0, 255),
+    milk: String(item.milk || "").slice(0, 255),
+    temp: String(item.temp || "").slice(0, 255),
+    size: String(item.size || "").slice(0, 255),
+    notes: String(item.notes || "").slice(0, 1000),
+    addedAt: String(item.addedAt || new Date().toISOString()).slice(0, 255),
+  }));
+  if (items.some((item) => !item.wishId || !item.name)) {
+    res.status(400).json({ success: false, error: "心愿卡存在缺失标识或名称的项目" });
+    return;
+  }
+  try {
+    await replaceWishlist(req.user!.id, items);
+    res.json({ success: true, message: "心愿卡已保存到数据库", data: items });
+  } catch (error) {
+    console.error("Wishlist save error:", error);
+    res.status(500).json({ success: false, error: "心愿卡保存失败" });
+  }
+});
+
+// ==================== DeepSeek Conversational Coffee Consultant ====================
+
+app.post("/api/assistant/chat", async (req, res) => {
+  const key = req.ip || req.socket.remoteAddress || "unknown";
+  const now = Date.now();
+  const current = assistantRateLimits.get(key);
+  const bucket = !current || current.resetAt <= now
+    ? { count: 0, resetAt: now + 60 * 60 * 1000 }
+    : current;
+  if (bucket.count >= 30) {
+    res.status(429).json({ success: false, error: "本小时咨询次数已达到上限，请稍后再试" });
+    return;
+  }
+  bucket.count += 1;
+  assistantRateLimits.set(key, bucket);
+
+  const rawMessages = Array.isArray(req.body?.messages) ? req.body.messages : [];
+  const messages = rawMessages
+    .filter((message: any) => message?.role === "user" || message?.role === "assistant")
+    .slice(-10)
+    .map((message: any) => ({ role: message.role, content: String(message.content || "").slice(0, 1200) }));
+  if (messages.length === 0 || messages[messages.length - 1].role !== "user") {
+    res.status(400).json({ success: false, error: "请输入需要咨询的问题" });
+    return;
+  }
+
+  const apiKey = process.env.DEEPSEEK_API_KEY?.trim();
+  if (!apiKey) {
+    res.status(503).json({ success: false, code: "AI_NOT_CONFIGURED", error: "咖啡顾问正在配置中，请稍后再来" });
+    return;
+  }
+
+  try {
+    const products = await getMenuProducts(false);
+    const menuContext = products.map((product) => {
+      const origin = product.beanBatch
+        ? `；豆源：${product.beanBatch.country}${product.beanBatch.region}，${product.beanBatch.process}，${product.beanBatch.flavorNotes.join("、")}`
+        : "";
+      return `- ${product.name}：¥${product.price}，库存${product.stock}，${product.desc}${origin}`;
+    }).join("\n");
+    const systemMessage = `你是“悠然咖啡客”的24小时对话式咖啡顾问。请使用自然、克制、可靠的中文回答。\n\n当前真实菜单：\n${menuContext}\n\n规则：\n1. 只提供咖啡、茶饮、甜点、菜单和饮用知识咨询，不执行下单、退款、库存修改或账户操作。\n2. 涉及本店商品、价格和库存时只能依据上方菜单，不得编造。\n3. 可以根据预算、冷热、甜度、风味和咖啡因偏好给出2至3个建议并解释原因。\n4. 涉及过敏、孕期、疾病和药物时明确说明不是医疗建议，建议咨询医生或店员核实配料。\n5. 回答尽量控制在300字以内，除非用户要求详细说明。`;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000);
+    let deepSeekResponse: globalThis.Response;
+    try {
+      deepSeekResponse = await fetch("https://api.deepseek.com/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: process.env.DEEPSEEK_MODEL || "deepseek-flash",
+          messages: [{ role: "system", content: systemMessage }, ...messages],
+          thinking: { type: "disabled" },
+          max_tokens: 700,
+          stream: false,
+        }),
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
+
+    const payload: any = await deepSeekResponse.json().catch(() => ({}));
+    if (!deepSeekResponse.ok) {
+      console.error("DeepSeek API error:", deepSeekResponse.status, payload?.error?.message || "unknown");
+      res.status(502).json({ success: false, error: deepSeekResponse.status === 402 ? "咖啡顾问额度暂不可用" : "咖啡顾问暂时无法回答，请稍后重试" });
+      return;
+    }
+    const reply = payload?.choices?.[0]?.message?.content?.trim();
+    if (!reply) {
+      res.status(502).json({ success: false, error: "咖啡顾问没有返回有效内容" });
+      return;
+    }
+    res.json({ success: true, data: { reply, usage: payload.usage || null } });
+  } catch (error: any) {
+    console.error("Coffee assistant error:", error?.name === "AbortError" ? "timeout" : error);
+    res.status(502).json({ success: false, error: error?.name === "AbortError" ? "咖啡顾问响应超时，请稍后重试" : "咖啡顾问暂时不可用" });
+  }
+});
+
 // ==================== Order Transaction Endpoints ====================
 
 // Submit and Pay Checkout
@@ -490,7 +662,14 @@ app.post("/api/orders/checkout", authMiddleware, async (req: AuthenticatedReques
       type: type as 'dine-in' | 'take-away'
     };
 
-    await insertOrder(newOrder);
+    const productQuantities = new Map<number, number>();
+    for (const item of items) {
+      const productId = Number(item.itemId);
+      if (Number.isInteger(productId)) {
+        productQuantities.set(productId, (productQuantities.get(productId) || 0) + 1);
+      }
+    }
+    await insertOrderWithInventory(newOrder, productQuantities);
 
     const printJobId = jobId || "PRT-" + Math.floor(1000 + Math.random() * 9000) + "-" + crypto.randomBytes(3).toString("hex").toUpperCase();
 
@@ -500,8 +679,17 @@ app.post("/api/orders/checkout", authMiddleware, async (req: AuthenticatedReques
       data: newOrder,
       printJobId: printJobId
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Order checkout error:", error);
+    if (typeof error?.message === "string" && error.message.startsWith("INSUFFICIENT_STOCK:")) {
+      const [, productName, remaining] = error.message.split(":");
+      res.status(409).json({ success: false, error: `${productName}库存不足，当前仅剩${remaining}份` });
+      return;
+    }
+    if (typeof error?.message === "string" && error.message.startsWith("PRODUCT_UNAVAILABLE:")) {
+      res.status(409).json({ success: false, error: "订单中包含已下架商品，请刷新菜单后重试" });
+      return;
+    }
     res.status(500).json({ success: false, error: "提单支付流程遇到数据库写入错误" });
   }
 });
@@ -729,7 +917,15 @@ async function startServer() {
   } else {
     // Serve production static outputs
     const distPath = path.join(process.cwd(), "dist");
-    app.use(express.static(distPath));
+    app.use(express.static(distPath, {
+      setHeaders: (res, filePath) => {
+        if (/\.(?:mp4|webm|webp|avif|png|jpe?g)$/i.test(filePath)) {
+          res.setHeader("Cache-Control", "public, max-age=604800");
+        } else if (filePath.endsWith("index.html")) {
+          res.setHeader("Cache-Control", "no-cache");
+        }
+      },
+    }));
     app.get("*", (req, res) => {
       res.sendFile(path.join(distPath, "index.html"));
     });

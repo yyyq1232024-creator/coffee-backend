@@ -3,9 +3,9 @@ import {
   Users, Search, UserPlus, RefreshCw, Eye, Edit, Trash2, 
   ChevronLeft, AlertCircle, Check, X, Shield, ShieldCheck, Mail, Calendar, 
   Lock, ArrowUpDown, Power, UserCheck, MessageSquare, ShieldAlert,
-  TrendingUp, ShoppingBag, DollarSign, BarChart2, Clock, Coffee, Sparkles, Tag
+  TrendingUp, ShoppingBag, DollarSign, BarChart2, Clock, Coffee, Sparkles, Tag, Boxes
 } from 'lucide-react';
-import { User, UserRole, UserStatus, Order, OrderItem } from '../types';
+import { User, UserRole, UserStatus, Order, OrderItem, MenuProduct } from '../types';
 
 interface AdminPanelProps {
   token: string;
@@ -61,10 +61,42 @@ export default function AdminPanel({ token, currentUser }: AdminPanelProps) {
   };
 
   // Sales & Orders Sub-tab System
-  const [adminSubTab, setAdminSubTab] = useState<'users' | 'sales_dashboard' | 'transactions'>('sales_dashboard');
+  const [adminSubTab, setAdminSubTab] = useState<'users' | 'sales_dashboard' | 'transactions' | 'inventory'>('sales_dashboard');
   const [orders, setOrders] = useState<Order[]>([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [ordersError, setOrdersError] = useState<string | null>(null);
+  const [products, setProducts] = useState<MenuProduct[]>([]);
+  const [inventorySavingId, setInventorySavingId] = useState<number | null>(null);
+
+  const fetchProducts = async () => {
+    try {
+      const res = await fetch('/api/admin/products', { headers: { 'Authorization': `Bearer ${token}` } });
+      const result = await res.json();
+      if (!res.ok || !result.success) throw new Error(result.error || '获取库存失败');
+      setProducts(result.data);
+    } catch (err: any) {
+      setError(err.message || '库存读取失败');
+    }
+  };
+
+  const saveInventory = async (product: MenuProduct) => {
+    setInventorySavingId(product.id);
+    try {
+      const res = await fetch(`/api/admin/products/${product.id}/inventory`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ stock: product.stock, active: product.active }),
+      });
+      const result = await res.json();
+      if (!res.ok || !result.success) throw new Error(result.error || '库存保存失败');
+      setProducts((current) => current.map((item) => item.id === product.id ? result.data : item));
+      setSuccessMsg(`${product.name}的库存已更新`);
+    } catch (err: any) {
+      setError(err.message || '库存保存失败');
+    } finally {
+      setInventorySavingId(null);
+    }
+  };
 
   // Search & Filters for Sold Products (Transactions tab)
   const [orderSearchQuery, setOrderSearchQuery] = useState('');
@@ -98,6 +130,7 @@ export default function AdminPanel({ token, currentUser }: AdminPanelProps) {
   useEffect(() => {
     fetchUsers();
     fetchOrders();
+    fetchProducts();
   }, [token]);
 
   // Clean success alert after delay
@@ -363,6 +396,7 @@ export default function AdminPanel({ token, currentUser }: AdminPanelProps) {
   // Additional Insight Data points
   const peakDayInfo = dailyTrend.reduce((max, d) => d.revenue > max.revenue ? d : max, { date: '无数据', label: '', revenue: 0, count: 0 });
   const avgDailyRev = (dailyTrend.reduce((sum, d) => sum + d.revenue, 0) / (dailyTrend.length || 1)).toFixed(0);
+  const hasTrendData = dailyTrend.some(day => day.revenue > 0 || day.count > 0);
 
   return (
     <div id="admin-module" className="w-full max-w-6xl mx-auto my-4 text-slate-800">
@@ -421,6 +455,17 @@ export default function AdminPanel({ token, currentUser }: AdminPanelProps) {
               <span>卖出产品明细 (Sold Products)</span>
             </button>
             <button
+              onClick={() => setAdminSubTab('inventory')}
+              className={`flex-1 md:flex-initial px-6 py-4 font-sans text-xs font-bold flex items-center justify-center gap-2 border-b-2 transition cursor-pointer ${
+                adminSubTab === 'inventory'
+                  ? 'border-amber-700 text-amber-700 bg-white shadow-xs'
+                  : 'border-transparent text-slate-500 hover:text-slate-800 hover:bg-slate-50/55'
+              }`}
+            >
+              <Boxes className="w-4 h-4" />
+              <span>菜单库存</span>
+            </button>
+            <button
               onClick={() => setAdminSubTab('users')}
               className={`flex-1 md:flex-initial px-6 py-4 font-sans text-xs font-bold flex items-center justify-center gap-2 border-b-2 transition cursor-pointer ${
                 adminSubTab === 'users'
@@ -432,6 +477,64 @@ export default function AdminPanel({ token, currentUser }: AdminPanelProps) {
               <span>用户账户管理 (User Accounts)</span>
             </button>
           </div>
+
+          {adminSubTab === 'inventory' && (
+            <div className="p-6 md:p-8 space-y-6 animate-fadeIn">
+              <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-3">
+                <div>
+                  <h3 className="text-lg font-bold text-[#5C3A21] font-serif flex items-center gap-2">
+                    <Boxes className="w-5 h-5" /> 今日菜单与库存
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-1">库存为0时前台自动显示售罄；下单成功后由数据库事务扣减。</p>
+                </div>
+                <button onClick={fetchProducts} className="px-4 py-2 rounded-xl bg-[#FAF7F2] text-amber-900 text-xs font-bold flex items-center gap-1.5">
+                  <RefreshCw className="w-3.5 h-3.5" /> 刷新库存
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {products.map((product) => (
+                  <div key={product.id} className="border border-slate-100 rounded-2xl p-4 bg-white shadow-sm flex gap-4">
+                    <img src={product.img} alt={product.name} className="w-20 h-20 rounded-xl object-cover bg-stone-100" referrerPolicy="no-referrer" />
+                    <div className="flex-1 min-w-0 space-y-3">
+                      <div className="flex justify-between gap-3">
+                        <div>
+                          <h4 className="font-bold text-sm text-[#5C3A21] truncate">{product.name}</h4>
+                          <p className="text-[10px] text-slate-400">¥{product.price} · {product.category}{product.beanBatch ? ` · ${product.beanBatch.lotCode}` : ''}</p>
+                        </div>
+                        <label className="flex items-center gap-1.5 text-[10px] text-slate-500">
+                          <input
+                            type="checkbox"
+                            checked={product.active}
+                            onChange={(e) => setProducts((current) => current.map((item) => item.id === product.id ? { ...item, active: e.target.checked } : item))}
+                          />
+                          上架
+                        </label>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <label className="text-[10px] text-slate-500">剩余库存</label>
+                        <input
+                          type="number"
+                          min={0}
+                          max={9999}
+                          value={product.stock}
+                          onChange={(e) => setProducts((current) => current.map((item) => item.id === product.id ? { ...item, stock: Math.max(0, Number(e.target.value) || 0) } : item))}
+                          className="w-20 border border-slate-200 rounded-lg px-2 py-1.5 text-xs"
+                        />
+                        <button
+                          onClick={() => saveInventory(product)}
+                          disabled={inventorySavingId === product.id}
+                          className="ml-auto px-3 py-1.5 rounded-lg bg-[#5C3A21] text-white text-[10px] font-bold disabled:opacity-50"
+                        >
+                          {inventorySavingId === product.id ? '保存中…' : '保存'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* ================= Subtab: Sales Dashboard ================= */}
           {adminSubTab === 'sales_dashboard' && (
@@ -514,79 +617,77 @@ export default function AdminPanel({ token, currentUser }: AdminPanelProps) {
                 {/* COLUMN CHART + LINE CHART WRAPPER COL */}
                 <div className="lg:col-span-8 space-y-6">
                   
-                  {/* ADVANCED COLUMN CHART PANEL */}
-                  <div className="bg-white border border-[#A88C74]/15 p-6 rounded-3xl shadow-lg shadow-stone-100/50 space-y-6">
-                    {/* Chart Utility Toolbar Header */}
-                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-stone-50 pb-4">
+                  {/* Weekly operating trend */}
+                  <div className="bg-white border border-stone-200/80 p-5 sm:p-6 rounded-2xl shadow-sm space-y-5">
+                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-stone-100 pb-5">
                       <div className="text-left">
-                        <h4 className="text-sm font-extrabold text-[#5C3A21] font-serif flex items-center gap-1.5">
-                          <BarChart2 className="w-4 h-4 text-amber-700" />
-                          经营周盘走势分析
+                        <h4 className="text-sm font-semibold text-stone-800 flex items-center gap-2">
+                          <BarChart2 className="w-4 h-4 text-[#7A5237]" />
+                          近 7 日经营趋势
                         </h4>
-                        <p className="text-stone-400 text-[10px] mt-0.5">近 7 天销售额与交易总量趋势洞察，点击柱形折射详情</p>
+                        <p className="text-stone-400 text-[11px] mt-1">数据来自已完成订单，点击日期查看明细</p>
                       </div>
 
-                      {/* Chart Mode Toggle Buttons */}
-                      <div className="flex items-center gap-1 p-1 bg-[#FAF9F5] border border-stone-200/60 rounded-xl self-end sm:self-auto">
+                      <div className="flex items-center rounded-lg border border-stone-200 bg-stone-50 p-0.5 self-end sm:self-auto">
                         <button
                           onClick={() => {
                             setChartMetric('revenue');
                             setSelectedChartBarIdx(null);
                           }}
-                          className={`px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
+                          className={`px-3 py-1.5 rounded-md text-[11px] transition-colors cursor-pointer ${
                             chartMetric === 'revenue'
-                              ? 'bg-[#5C3A21] text-white shadow-xs'
-                              : 'text-stone-500 hover:text-stone-800 hover:bg-stone-100/50'
+                              ? 'bg-white text-stone-900 shadow-sm border border-stone-200'
+                              : 'text-stone-500 hover:text-stone-800 border border-transparent'
                           }`}
                         >
-                          应收营业额 (¥)
+                          营业额
                         </button>
                         <button
                           onClick={() => {
                             setChartMetric('orders');
                             setSelectedChartBarIdx(null);
                           }}
-                          className={`px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
+                          className={`px-3 py-1.5 rounded-md text-[11px] transition-colors cursor-pointer ${
                             chartMetric === 'orders'
-                              ? 'bg-[#5C3A21] text-white shadow-xs'
-                              : 'text-stone-500 hover:text-stone-800 hover:bg-stone-100/50'
+                              ? 'bg-white text-stone-900 shadow-sm border border-stone-200'
+                              : 'text-stone-500 hover:text-stone-800 border border-transparent'
                           }`}
                         >
-                          交易单笔量 (单)
+                          订单量
                         </button>
                       </div>
                     </div>
 
                     {ordersLoading ? (
-                      <div className="h-64 flex flex-col items-center justify-center text-stone-400 text-xs gap-3">
-                        <RefreshCw className="w-6 h-6 animate-spin text-amber-650" />
-                        <span>正在重新测算营业额趋势...</span>
+                      <div className="h-60 flex flex-col items-center justify-center text-stone-400 text-xs gap-3">
+                        <RefreshCw className="w-5 h-5 animate-spin text-stone-400" />
+                        <span>正在读取经营数据…</span>
+                      </div>
+                    ) : !hasTrendData ? (
+                      <div className="h-60 rounded-xl border border-dashed border-stone-200 bg-stone-50/60 flex flex-col items-center justify-center text-center px-6">
+                        <BarChart2 className="w-7 h-7 text-stone-300 mb-3" />
+                        <p className="text-sm font-medium text-stone-600">近 7 日暂无已完成订单</p>
+                        <p className="text-[11px] text-stone-400 mt-1.5">订单完成并归档后，营业额和订单量会显示在这里。</p>
                       </div>
                     ) : (
-                      <div className="space-y-6 pr-1">
-                        
-                        {/* Plot Area with Y-Axis Values */}
-                        <div className="flex items-stretch h-56 mt-4 gap-4">
-                          {/* Left Y Axis Numbers */}
-                          <div className="flex flex-col justify-between text-[10px] font-mono text-stone-400 select-none pb-7 text-right w-12 shrink-0">
+                      <div className="space-y-5">
+                        <div className="flex items-stretch h-56 mt-2 gap-3">
+                          <div className="flex flex-col justify-between text-[10px] tabular-nums text-stone-400 select-none pb-7 text-right w-12 shrink-0">
                             <span>{chartMetric === 'revenue' ? `¥${Math.round(chartMaxVal)}` : `${Math.round(chartMaxVal)}单`}</span>
                             <span>{chartMetric === 'revenue' ? `¥${Math.round(chartMaxVal * 0.66)}` : `${Math.round(chartMaxVal * 0.66)}单`}</span>
                             <span>{chartMetric === 'revenue' ? `¥${Math.round(chartMaxVal * 0.33)}` : `${Math.round(chartMaxVal * 0.33)}单`}</span>
                             <span>0</span>
                           </div>
 
-                          {/* Right Plot Container */}
-                          <div className="flex-1 relative border-b border-stone-200/90 pb-7">
-                            {/* Background Guides (Dashed line) */}
+                          <div className="flex-1 relative border-b border-stone-200 pb-7">
                             <div className="absolute inset-0 pb-7 flex flex-col justify-between pointer-events-none">
-                              <div className="w-full border-t border-dashed border-stone-100" />
-                              <div className="w-full border-t border-dashed border-stone-100" />
-                              <div className="w-full border-t border-dashed border-stone-100" />
+                              <div className="w-full border-t border-stone-100" />
+                              <div className="w-full border-t border-stone-100" />
+                              <div className="w-full border-t border-stone-100" />
                               <div className="w-full" />
                             </div>
 
-                            {/* Columns Map */}
-                            <div className="absolute inset-0 pb-7 flex items-end justify-between gap-3 px-2">
+                            <div className="absolute inset-0 pb-7 flex items-end justify-between gap-2 sm:gap-4 px-1 sm:px-2">
                               {dailyTrend.map((chunk, idx) => {
                                 const value = chartMetric === 'revenue' ? chunk.revenue : chunk.count;
                                 const heightPercent = chartMaxVal > 0 ? (value / chartMaxVal) * 100 : 0;
@@ -595,34 +696,26 @@ export default function AdminPanel({ token, currentUser }: AdminPanelProps) {
                                   <div
                                     key={chunk.date}
                                     onClick={() => setSelectedChartBarIdx(isSelected ? null : idx)}
-                                    className="flex-1 h-full flex flex-col justify-end items-center group cursor-pointer relative"
+                                    className="flex-1 h-full flex flex-col justify-end items-center group cursor-pointer relative focus:outline-none"
                                   >
-                                    {/* Absolute Tooltip on Hover */}
-                                    <div className={`absolute -top-14 left-1/2 -translate-x-1/2 bg-stone-900 border border-stone-800 text-white text-[10px] font-mono font-bold px-3 py-2 rounded-xl transition-all duration-200 pointer-events-none whitespace-nowrap opacity-0 group-hover:opacity-100 shadow-xl z-20 ${isSelected ? 'opacity-100 scale-105 ring-2 ring-amber-500' : ''}`}>
-                                      <div className="font-sans text-[9px] text-stone-400 font-bold mb-0.5 text-left">{chunk.date}</div>
-                                      <div className="text-amber-400 text-left">日流水额: ¥{chunk.revenue}</div>
-                                      <div className="text-emerald-400 text-left">出餐交易: {chunk.count} 笔</div>
+                                    <div className={`absolute -top-16 left-1/2 -translate-x-1/2 min-w-32 bg-white border border-stone-200 text-stone-700 px-3 py-2 rounded-lg transition-all duration-150 pointer-events-none whitespace-nowrap opacity-0 group-hover:opacity-100 shadow-md z-20 ${isSelected ? 'opacity-100' : ''}`}>
+                                      <div className="text-[10px] text-stone-400 mb-1 text-left">{chunk.date}</div>
+                                      <div className="text-[11px] flex justify-between gap-5"><span>营业额</span><strong className="font-semibold text-stone-800">¥{chunk.revenue}</strong></div>
+                                      <div className="text-[11px] flex justify-between gap-5 mt-0.5"><span>订单量</span><strong className="font-semibold text-stone-800">{chunk.count} 单</strong></div>
                                     </div>
 
-                                    {/* Bar Column Pillar */}
                                     <div className="w-full h-full flex justify-center items-end">
                                       <div
-                                        style={{ height: `${Math.max(heightPercent, 2.5)}%` }}
-                                        className={`w-full max-w-[28px] md:max-w-[40px] rounded-t-lg transition-all duration-300 relative overflow-hidden ${
+                                        style={{ height: `${heightPercent}%` }}
+                                        className={`w-full max-w-[26px] md:max-w-[34px] rounded-t-sm transition-all duration-300 ${
                                           isSelected 
-                                            ? 'bg-gradient-to-t from-[#412817] to-[#8C5A3C] shadow-lg shadow-amber-900/30' 
-                                            : 'bg-gradient-to-t from-[#FAF2E8] to-[#DBC4B0] group-hover:from-[#DBC4B0] group-hover:to-[#A88C74]'
+                                            ? 'bg-[#6F4A32]'
+                                            : 'bg-[#C7B09F] group-hover:bg-[#96745D]'
                                         }`}
-                                      >
-                                        {/* Selection core marker */}
-                                        {isSelected && (
-                                          <div className="absolute top-1 left-1 right-1 h-1 bg-amber-300 rounded-full animate-pulse" />
-                                        )}
-                                      </div>
+                                      />
                                     </div>
 
-                                    {/* Double Axis X date label below axis line */}
-                                    <span className={`absolute -bottom-6 text-[10px] font-mono font-medium transition-colors ${isSelected ? 'text-[#5C3A21] font-extrabold scale-105' : 'text-stone-400 group-hover:text-stone-700'}`}>
+                                    <span className={`absolute -bottom-6 text-[10px] tabular-nums transition-colors ${isSelected ? 'text-stone-800 font-semibold' : 'text-stone-400 group-hover:text-stone-600'}`}>
                                       {chunk.label}
                                     </span>
                                   </div>
@@ -632,53 +725,36 @@ export default function AdminPanel({ token, currentUser }: AdminPanelProps) {
                           </div>
                         </div>
 
-                        {/* Chart Legend and Metric Highlights */}
-                        <div className="pt-3 border-t border-stone-100 flex flex-wrap items-center justify-between gap-4 text-xs">
-                          <div className="flex items-center gap-4 text-[11px] text-stone-500 font-medium">
-                            <div className="flex items-center gap-1.5">
-                              <span className="w-3 h-3 bg-gradient-to-t from-[#FAF2E8] to-[#DBC4B0] border border-[#A88C74]/30 rounded" />
-                              <span>日常起伏水位</span>
-                            </div>
-                            <div className="flex items-center gap-1.5">
-                              <span className="w-3 h-3 bg-gradient-to-t from-[#412817] to-[#8C5A3C] rounded-sm" />
-                              <span>选中深度查看</span>
-                            </div>
-                          </div>
-
-                          {/* Simple Insight highlights */}
-                          <div className="text-[11px] text-stone-500 flex items-center gap-2">
-                            <span>高峰期：<strong className="text-amber-800">{peakDayInfo.date.slice(5)}</strong> (¥{peakDayInfo.revenue})</span>
-                            <span className="text-stone-300">|</span>
-                            <span>周期均值：<strong className="text-amber-800">¥{avgDailyRev}</strong> / 日</span>
-                          </div>
+                        <div className="pt-4 border-t border-stone-100 flex flex-wrap items-center gap-x-8 gap-y-2 text-[11px] text-stone-500">
+                          <span>最高营业额 <strong className="ml-1 text-stone-800 font-semibold">¥{peakDayInfo.revenue}</strong></span>
+                          <span>日均营业额 <strong className="ml-1 text-stone-800 font-semibold">¥{avgDailyRev}</strong></span>
+                          <span>峰值日期 <strong className="ml-1 text-stone-800 font-semibold">{peakDayInfo.date.slice(5)}</strong></span>
                         </div>
 
-                        {/* Selected day details drawer (Waterfall list) */}
                         {selectedChartBarIdx !== null && (
-                          <div className="bg-[#FAF9F5] border-l-4 border-amber-700 p-5 rounded-2xl space-y-4 shrink-0 animate-fadeIn text-left">
-                            <div className="flex justify-between items-center bg-[#FAF9F5]/40 pb-2 border-b border-[#A88C74]/15">
-                              <span className="font-extrabold text-[#5C3A21] flex items-center gap-1.5 font-serif text-sm">
-                                <span>📅</span>
-                                {dailyTrend[selectedChartBarIdx].date} 账单穿透流水平板
+                          <div className="bg-stone-50 border border-stone-200 p-4 rounded-xl space-y-3 shrink-0 animate-fadeIn text-left">
+                            <div className="flex justify-between items-center pb-3 border-b border-stone-200">
+                              <span className="font-semibold text-stone-800 text-sm">
+                                {dailyTrend[selectedChartBarIdx].date} 订单明细
                               </span>
                               <button 
                                 onClick={() => setSelectedChartBarIdx(null)}
-                                className="text-stone-400 hover:text-rose-500 font-extrabold text-[11px] border-none cursor-pointer flex items-center gap-1"
+                                className="text-stone-400 hover:text-stone-700 text-[11px] border-none cursor-pointer"
                               >
-                                清除穿透 [x]
+                                收起
                               </button>
                             </div>
 
-                            <div className="divide-y divide-stone-150/60 max-h-48 overflow-y-auto pr-1 text-xs font-mono">
+                            <div className="divide-y divide-stone-200 max-h-48 overflow-y-auto pr-1 text-xs">
                               {orders
                                 .filter(o => o.orderTime.startsWith(dailyTrend[selectedChartBarIdx!].date))
                                 .map(o => (
-                                  <div key={o.id} className="py-2.5 flex justify-between items-center text-[11px] hover:bg-stone-50/50 px-1 rounded transition-colors">
+                                  <div key={o.id} className="py-3 flex justify-between items-center text-[11px] px-1">
                                     <div className="space-y-0.5 text-left">
-                                      <p className="font-bold text-stone-700">单号: <span className="bg-[#FAF7F2] px-1 py-0.5 rounded text-amber-900 border border-stone-200/50">{o.id.substring(0, 10)}...</span> | 顾客: {o.buyerName}</p>
-                                      <p className="text-[10px] text-stone-400">时间: {o.orderTime.split('T')[1]?.substring(0, 5) || o.orderTime} | 属性: {o.type === 'dine-in' ? '堂食' : '打包'} | 件数: {o.items.length}杯/款</p>
+                                      <p className="font-medium text-stone-700">{o.id.substring(0, 10)} · {o.buyerName}</p>
+                                      <p className="text-[10px] text-stone-400">{o.orderTime.split('T')[1]?.substring(0, 5) || o.orderTime} · {o.type === 'dine-in' ? '堂食' : '打包'} · {o.items.length} 件</p>
                                     </div>
-                                    <span className="font-bold text-[#5C3A21] text-xs">¥{o.totalPrice}</span>
+                                    <span className="font-semibold text-stone-800 text-xs">¥{o.totalPrice}</span>
                                   </div>
                                 ))}
                               {orders.filter(o => o.orderTime.startsWith(dailyTrend[selectedChartBarIdx!].date)).length === 0 && (

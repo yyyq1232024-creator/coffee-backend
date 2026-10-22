@@ -9,6 +9,7 @@ import RegisterForm from './components/RegisterForm';
 import UserProfile from './components/UserProfile';
 import AdminPanel from './components/AdminPanel';
 import CoffeeShop from './components/CoffeeShop';
+import BeanOriginPage from './components/BeanOriginPage';
 
 const CINEMATIC_BACKGROUNDS = [
   "https://images.unsplash.com/photo-1507133750040-4a8f57021571?auto=format&fit=crop&w=1920&q=80", // Elegant dark espresso extraction, steam/crema
@@ -126,6 +127,10 @@ export default function App() {
         <span className="mt-4 text-sm font-semibold tracking-wide">系统初始化中...</span>
       </div>
     );
+  }
+
+  if (window.location.pathname.startsWith('/origin')) {
+    return <BeanOriginPage />;
   }
 
   // Full-screen cinematic layout for login and register pages (like codex.online)
@@ -310,6 +315,7 @@ export default function App() {
             token={token}
             onNavigateToLogin={() => setCurrentTab('login')} 
             onNavigateToRegister={() => setCurrentTab('register')} 
+            onNavigateToAdmin={() => setCurrentTab('admin')}
             onLogout={handleLogout}
           />
         )}

@@ -1,42 +1,31 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Coffee, Heart, Trash2, Plus, Sparkles, Check, 
-  MapPin, Phone, Mail, FileText, Send, Share2, Printer, X, ChevronDown
+  MapPin, Phone, Mail, FileText, Send, Share2, Printer, X, ChevronDown, Globe2, Menu, UserRound, LogOut, LayoutDashboard
 } from 'lucide-react';
-import { User as UserType } from '../types';
+import { User as UserType, WishlistItem, MenuProduct } from '../types';
 import CoffeeHome from './CoffeeHome';
+import CoffeeAssistant from './CoffeeAssistant';
 
 interface CoffeeShopProps {
   user: UserType | null;
   token: string | null;
   onNavigateToLogin: () => void;
   onNavigateToRegister: () => void;
+  onNavigateToAdmin?: () => void;
   onLogout?: () => void;
 }
 
-export interface WishlistItem {
-  wishId: string;
-  itemId?: number; // exists if from menu
-  name: string;
-  price: number;
-  category: string;
-  img: string;
-  sugar: string;
-  milk: string;
-  temp: string;
-  size: string; // "Medium" | "Large" | "Venti"
-  notes: string;
-  addedAt: string;
-}
-
-export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateToRegister, onLogout }: CoffeeShopProps) {
+export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateToRegister, onNavigateToAdmin, onLogout }: CoffeeShopProps) {
   // Navigation tabs: 'home' | 'menu' | 'builder' | 'wishlist' | 'about' | 'contact' | 'printer'
   const [activeTab, setActiveTab] = useState<'home' | 'menu' | 'builder' | 'wishlist' | 'about' | 'contact' | 'printer'>('home');
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [openDropdown, setOpenDropdown] = useState<'order' | 'about' | 'member' | null>(null);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   const handleTabClick = (tab: 'home' | 'menu' | 'builder' | 'wishlist' | 'about' | 'contact' | 'printer') => {
     setOpenDropdown(null);
+    setMobileNavOpen(false);
     setActiveTab(tab);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -57,7 +46,27 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
   const [menuFilter, setMenuFilter] = useState<'all' | 'coffee' | 'tea' | 'dessert'>('all');
   const [contactSuccess, setContactSuccess] = useState(false);
   const [wishlist, setWishlist] = useState<WishlistItem[]>([]);
+  const [wishlistReady, setWishlistReady] = useState(false);
   const [addedAnimationId, setAddedAnimationId] = useState<number | null>(null);
+  const [menuItems, setMenuItems] = useState<MenuProduct[]>([]);
+  const [menuLoading, setMenuLoading] = useState(true);
+
+  const fetchMenuProducts = async () => {
+    try {
+      const response = await fetch('/api/products');
+      const result = await response.json();
+      if (!response.ok || !result.success) throw new Error(result.error || '菜单读取失败');
+      setMenuItems(result.data);
+    } catch (error) {
+      console.error('Failed to load menu and inventory:', error);
+    } finally {
+      setMenuLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchMenuProducts();
+  }, []);
   
   // Custom Receipt Overlay state
   const [showReceipt, setShowReceipt] = useState(false);
@@ -77,60 +86,46 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
     if (wishlist.length === 0) return;
     setCheckoutLoading(true);
     try {
-      // ① 生成 UUID 作为 jobId (自定义高防冲突的全局订单唯一热敏凭证号)
       const jobId = "PRT-" + Math.floor(1000 + Math.random() * 9000) + "-" + Math.random().toString(36).substring(2, 8).toUpperCase();
-
-      // ② snapshot = [...wishlist]  ← 先快照，再清空
       const snapshot = [...wishlist];
-
       const notesString = checkoutNotes.trim() ? `【客座座号/打包交代】${checkoutNotes.trim()}` : '';
-
-      // Create physical checkout order on database
-      let orderId = 'ord-new-' + Math.random().toString(36).substring(2, 10);
-      try {
-        const checkoutRes = await fetch('/api/orders/checkout', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-          },
-          body: JSON.stringify({
-            jobId, // pass pre-generated jobId
-            items: snapshot.map((itm) => ({
-              id: itm.wishId,
-              name: itm.name,
-              price: itm.price,
-              size: itm.size,
-              sugar: itm.sugar,
-              milk: itm.milk,
-              temp: itm.temp,
-              notes: itm.notes ? `${itm.notes} ${notesString}` : notesString,
-              img: itm.img
-            })),
-            totalPrice: totalWishlistPrice,
-            type: receiptType
-          })
-        });
-        const checkoutData = await checkoutRes.json();
-        if (checkoutRes.ok && checkoutData.success) {
-          if (checkoutData.data?.id) {
-            orderId = checkoutData.data.id;
-          }
-        }
-      } catch (checkoutErr) {
-        console.error("Order checkout endpoint error:", checkoutErr);
+      const checkoutRes = await fetch('/api/orders/checkout', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({
+          jobId,
+          items: snapshot.map((itm) => ({
+            id: itm.wishId,
+            itemId: itm.itemId,
+            name: itm.name,
+            price: itm.price,
+            size: itm.size,
+            sugar: itm.sugar,
+            milk: itm.milk,
+            temp: itm.temp,
+            notes: itm.notes ? `${itm.notes} ${notesString}` : notesString,
+            img: itm.img
+          })),
+          totalPrice: totalWishlistPrice,
+          type: receiptType
+        })
+      });
+      const checkoutData = await checkoutRes.json();
+      if (!checkoutRes.ok || !checkoutData.success) {
+        throw new Error(checkoutData.error || '订单提交失败');
       }
+      const orderId = checkoutData.data?.id;
 
-      // ⑤ setWishlist([])  ← 清空购物车
       saveWishlist([]);
-
-      // ⑥ setShowReceipt(true)  ← 显示收据
       setReceiptItems([...snapshot]);
       setReceiptNumber(orderId);
       setLastPrintJobId(jobId);
       setShowReceipt(true);
-
-      alert('🎉 订单支付及入账成功！系统已生成提单凭证。您可提交到吧台出单，也可以先关闭，稍后再查看。');
+      await fetchMenuProducts();
+      alert('订单已成功入账，库存已经同步扣减。');
     } catch (e: any) {
       alert(`下单支付出错: ${e.message}`);
     } finally {
@@ -265,21 +260,73 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
     localStorage.setItem('coffee_danmakus', JSON.stringify(customOnly));
   };
 
-  // Load wishlist from localStorage based on user session context
+  // The local copy is only a recovery cache; authenticated users persist to the server database.
   const storageKey = user ? `coffee_wishlist_${user.username}` : `coffee_wishlist_guest`;
   
   useEffect(() => {
-    const stored = localStorage.getItem(storageKey);
-    if (stored) {
-      try {
-        setWishlist(JSON.parse(stored));
-      } catch (e) {
-        setWishlist([]);
-      }
-    } else {
+    let cancelled = false;
+    setWishlistReady(false);
+    if (!user || !token) {
       setWishlist([]);
+      setWishlistReady(true);
+      return () => { cancelled = true; };
     }
-  }, [storageKey]);
+
+    const loadWishlist = async () => {
+      let cached: WishlistItem[] = [];
+      try {
+        const stored = localStorage.getItem(storageKey);
+        cached = stored ? JSON.parse(stored) : [];
+      } catch {
+        cached = [];
+      }
+      try {
+        const response = await fetch('/api/wishlist', { headers: { 'Authorization': `Bearer ${token}` } });
+        const result = await response.json();
+        if (!response.ok || !result.success) throw new Error(result.error || '心愿卡读取失败');
+        let serverItems: WishlistItem[] = Array.isArray(result.data) ? result.data : [];
+        if (serverItems.length === 0 && cached.length > 0) {
+          const migration = await fetch('/api/wishlist', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({ items: cached }),
+          });
+          if (migration.ok) serverItems = cached;
+        }
+        if (!cancelled) {
+          setWishlist(serverItems);
+          localStorage.setItem(storageKey, JSON.stringify(serverItems));
+        }
+      } catch (error) {
+        console.error('Failed to load database wishlist, using recovery cache:', error);
+        if (!cancelled) setWishlist(cached);
+      } finally {
+        if (!cancelled) setWishlistReady(true);
+      }
+    };
+    loadWishlist();
+    return () => { cancelled = true; };
+  }, [storageKey, user?.id, token]);
+
+  useEffect(() => {
+    if (!wishlistReady || !user || !token) return;
+    const timer = window.setTimeout(async () => {
+      try {
+        const response = await fetch('/api/wishlist', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify({ items: wishlist }),
+        });
+        if (!response.ok) {
+          const result = await response.json().catch(() => ({}));
+          throw new Error(result.error || '心愿卡保存失败');
+        }
+      } catch (error) {
+        console.error('Failed to persist wishlist:', error);
+      }
+    }, 350);
+    return () => window.clearTimeout(timer);
+  }, [wishlist, wishlistReady, user?.id, token]);
 
   // Save changes to state and LocalStorage
   const saveWishlist = (newWishlist: WishlistItem[]) => {
@@ -433,18 +480,6 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
     }
   };
 
-  // Menu Items Definition
-  const menuItems = [
-    { id: 1, name: '温暖经典卡布奇诺', price: 30, category: 'coffee', img: 'https://images.unsplash.com/photo-1572442388796-11668a67e53d?w=500', desc: '传统意式拼配现磨，绵密细腻的厚奶泡交融黄金油脂，附上古典肉桂微香。' },
-    { id: 2, name: '衣索比亚耶加雪菲手冲', price: 34, category: 'coffee', img: 'https://images.unsplash.com/photo-1514432324607-a09d9b4aefdd?w=500', desc: '庄园浅烘。优雅茉莉花香、澄亮柠檬柑橘风味、酸质纯净，回甘细腻温柔。' },
-    { id: 3, name: '京都宇治抹茶拿铁', price: 28, category: 'tea', img: 'https://images.unsplash.com/photo-1544787219-7f47ccb76574?w=500', desc: '日本顶级宇治抹茶现刷，清润的绿意茶香交融温润醇厚新西兰牛乳。' },
-    { id: 4, name: '皇家庄园伯爵红茶', price: 25, category: 'tea', img: 'https://images.unsplash.com/photo-1556679343-c7306c1976bc?w=500', desc: '手选皇家伯爵红茶拼配，浸润清新佛手柑精油，口感澄澈爽快，散发优雅英伦气息。' },
-    { id: 5, name: '拿破仑生椰厚乳特调', price: 32, category: 'coffee', img: 'https://images.unsplash.com/photo-1517701604599-bb29b565090c?w=500', desc: '冷感厚醇生椰厚乳，注入饱满双份火山拼配浓缩，醇甜芳香在口腔回旋绽放。' },
-    { id: 6, name: '纽约传统香草重乳酪蛋糕', price: 36, category: 'dessert', img: 'https://images.unsplash.com/photo-1563729784474-d77dbb933a9e?w=500', desc: '主慢火温水烘制。芝士层浓醇幼滑、入口即化，伴随淡淡马达加斯加香草籽香气。' },
-    { id: 7, name: '意式传统手作正宗提拉米苏', price: 38, category: 'dessert', img: 'https://images.unsplash.com/photo-1571115177098-24ec42ed204d?w=500', desc: '原浆马斯卡彭慕斯，微苦法芙娜可可粉、浸透咖啡酒指形饼，苦甜交感，风味无双。' },
-    { id: 8, name: '英式红熟蔓越莓软司康', price: 18, category: 'dessert', img: 'https://images.unsplash.com/photo-1509440159596-0249088772ff?w=500', desc: '外皮金黄酥脆，麦香温和。融入精选红提蔓越莓干，每一口都酸甜香酥。' }
-  ];
-
   // Switch display and select customize state in accordion
   const toggleQuickCustomize = (itemId: number) => {
     if (quickCustomizeItemId === itemId) {
@@ -496,10 +531,18 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
     }, 1200);
   };
 
-  // Quick default add back-up
-  const handleAddToWishlistDefault = (item: typeof menuItems[0]) => {
+  // The heart is a true save toggle. Quantity belongs to checkout/customization,
+  // so repeated heart clicks must never create duplicate cups.
+  const handleToggleWishlistDefault = (item: typeof menuItems[0]) => {
     if (!user) {
       setShowLoginModal(true);
+      return;
+    }
+    const isDefaultForProduct = (wish: WishlistItem) => wish.itemId === item.id && wish.notes === '默认标准出杯';
+    if (wishlist.some(isDefaultForProduct)) {
+      // Also clears duplicates created by the old add-only heart behavior.
+      saveWishlist(wishlist.filter(wish => !isDefaultForProduct(wish)));
+      setAddedAnimationId(null);
       return;
     }
     const wishId = 'wish-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7);
@@ -517,7 +560,7 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
       notes: '默认标准出杯',
       addedAt: new Date().toISOString()
     };
-    saveWishlist([newItem, ...wishlist]);
+    saveWishlist([newItem, ...wishlist.filter(wish => !isDefaultForProduct(wish))]);
     setAddedAnimationId(item.id);
     setTimeout(() => {
       setAddedAnimationId(null);
@@ -602,12 +645,161 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
   };
 
   const totalWishlistPrice = wishlist.reduce((sum, item) => sum + item.price, 0);
+  const primaryNavigation = [
+    { tab: 'menu' as const, label: '菜单' },
+    { tab: 'builder' as const, label: '私人特调' },
+    { tab: 'wishlist' as const, label: '心愿单', badge: wishlist.length },
+    { tab: 'printer' as const, label: '吧台出单', badge: printQueue.filter(job => job.status === 'pending').length },
+  ];
 
   return (
     <div id="coffee-shop-container" className="w-full">
 
+      {activeTab !== 'home' && (
+        <header className="sticky top-0 z-40 border-b border-stone-200/80 bg-[#FCFBF8]/95 backdrop-blur-xl">
+          <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between gap-4">
+            <button
+              type="button"
+              onClick={() => handleTabClick('home')}
+              className="flex items-center gap-2.5 bg-transparent border-0 cursor-pointer text-left shrink-0"
+              aria-label="返回首页"
+            >
+              <span className="grid h-8 w-8 place-items-center rounded-full bg-[#5C3A21] text-white"><Coffee className="w-4 h-4" /></span>
+              <span>
+                <strong className="block text-sm font-serif text-[#4A3020] leading-none">悠然咖啡客</strong>
+                <small className="hidden sm:block mt-1 text-[8px] tracking-[0.2em] text-stone-400">YURAN COFFEE</small>
+              </span>
+            </button>
+
+            <nav className="hidden lg:flex items-center gap-1" aria-label="主要导航">
+              {primaryNavigation.map(item => (
+                <button
+                  key={item.tab}
+                  type="button"
+                  onClick={() => handleTabClick(item.tab)}
+                  className={`relative px-3 py-2 rounded-lg text-[12px] transition-colors cursor-pointer border-0 ${
+                    activeTab === item.tab
+                      ? 'bg-[#EEE7DF] text-[#4A3020] font-semibold'
+                      : 'bg-transparent text-stone-500 hover:bg-stone-100 hover:text-stone-800'
+                  }`}
+                >
+                  {item.label}
+                  {Boolean(item.badge) && (
+                    <span className="ml-1.5 inline-flex min-w-4 h-4 items-center justify-center rounded-full bg-[#79543B] px-1 text-[9px] text-white">{item.badge}</span>
+                  )}
+                </button>
+              ))}
+
+              <div className="relative dropdown-container">
+                <button
+                  type="button"
+                  onClick={() => setOpenDropdown(openDropdown === 'about' ? null : 'about')}
+                  className={`px-3 py-2 rounded-lg text-[12px] flex items-center gap-1 border-0 cursor-pointer transition-colors ${
+                    ['about', 'contact'].includes(activeTab) ? 'bg-[#EEE7DF] text-[#4A3020] font-semibold' : 'bg-transparent text-stone-500 hover:bg-stone-100 hover:text-stone-800'
+                  }`}
+                >
+                  品牌与联系 <ChevronDown className={`w-3 h-3 transition-transform ${openDropdown === 'about' ? 'rotate-180' : ''}`} />
+                </button>
+                {openDropdown === 'about' && (
+                  <div className="absolute left-0 top-full mt-2 w-40 rounded-xl border border-stone-200 bg-white p-1.5 shadow-lg">
+                    <button onClick={() => handleTabClick('about')} className="w-full rounded-lg px-3 py-2 text-left text-xs text-stone-600 hover:bg-stone-50">品牌故事</button>
+                    <button onClick={() => handleTabClick('contact')} className="w-full rounded-lg px-3 py-2 text-left text-xs text-stone-600 hover:bg-stone-50">联系门店</button>
+                  </div>
+                )}
+              </div>
+            </nav>
+
+            <div className="hidden lg:flex items-center gap-2">
+              {user ? (
+                <>
+                {user.role === 'admin' && (
+                  <button
+                    type="button"
+                    onClick={onNavigateToAdmin}
+                    className="flex items-center gap-2 rounded-full bg-[#5C3A21] px-4 py-2 text-xs font-medium text-white border-0 cursor-pointer hover:bg-[#442A1B] transition-colors"
+                  >
+                    <LayoutDashboard className="w-3.5 h-3.5" />
+                    管理后台
+                  </button>
+                )}
+                <div className="relative dropdown-container">
+                  <button
+                    type="button"
+                    onClick={() => setOpenDropdown(openDropdown === 'member' ? null : 'member')}
+                    className="flex items-center gap-2 rounded-full border border-stone-200 bg-white py-1.5 pl-2 pr-3 text-xs text-stone-700 cursor-pointer"
+                  >
+                    <span className="grid h-6 w-6 place-items-center rounded-full bg-[#EEE7DF] text-[#5C3A21]"><UserRound className="w-3.5 h-3.5" /></span>
+                    <span className="max-w-20 truncate">{user.name}</span>
+                    <ChevronDown className="w-3 h-3 text-stone-400" />
+                  </button>
+                  {openDropdown === 'member' && (
+                    <div className="absolute right-0 top-full mt-2 w-48 rounded-xl border border-stone-200 bg-white p-1.5 shadow-lg">
+                      <div className="px-3 py-2 border-b border-stone-100 mb-1">
+                        <p className="text-xs font-medium text-stone-700 truncate">{user.name}</p>
+                        <p className="text-[10px] text-stone-400 truncate">@{user.username}</p>
+                      </div>
+                      {user.role === 'admin' && (
+                        <button onClick={() => { setOpenDropdown(null); onNavigateToAdmin?.(); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-[#5C3A21] hover:bg-[#F5F0EA] flex items-center gap-2"><LayoutDashboard className="w-3.5 h-3.5" />管理后台</button>
+                      )}
+                      <button onClick={() => handleTabClick('wishlist')} className="w-full rounded-lg px-3 py-2 text-left text-xs text-stone-600 hover:bg-stone-50">我的心愿单</button>
+                      <button onClick={() => { setOpenDropdown(null); onLogout?.(); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-rose-600 hover:bg-rose-50 flex items-center gap-2"><LogOut className="w-3.5 h-3.5" />退出登录</button>
+                    </div>
+                  )}
+                </div>
+                </>
+              ) : (
+                <>
+                  <button onClick={onNavigateToLogin} className="px-3 py-2 text-xs text-stone-600 bg-transparent border-0 cursor-pointer">登录</button>
+                  <button onClick={onNavigateToRegister} className="px-4 py-2 rounded-full bg-[#5C3A21] text-white text-xs border-0 cursor-pointer">注册</button>
+                </>
+              )}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setMobileNavOpen(current => !current)}
+              className="lg:hidden grid h-9 w-9 place-items-center rounded-lg border border-stone-200 bg-white text-stone-700 cursor-pointer"
+              aria-expanded={mobileNavOpen}
+              aria-label={mobileNavOpen ? '关闭导航菜单' : '打开导航菜单'}
+            >
+              {mobileNavOpen ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
+            </button>
+          </div>
+
+          {mobileNavOpen && (
+            <div className="lg:hidden border-t border-stone-200 bg-[#FCFBF8] px-4 py-4 shadow-lg">
+              <nav className="max-w-6xl mx-auto grid grid-cols-2 gap-2" aria-label="移动端导航">
+                {[...primaryNavigation, { tab: 'about' as const, label: '品牌故事' }, { tab: 'contact' as const, label: '联系门店' }].map(item => (
+                  <button
+                    key={item.tab}
+                    onClick={() => handleTabClick(item.tab)}
+                    className={`flex items-center justify-between rounded-lg border px-3 py-3 text-left text-xs ${activeTab === item.tab ? 'border-[#B89A83] bg-[#EEE7DF] text-[#4A3020] font-semibold' : 'border-stone-200 bg-white text-stone-600'}`}
+                  >
+                    {item.label}
+                    {'badge' in item && Boolean(item.badge) && <span className="text-[9px] text-[#79543B]">{item.badge}</span>}
+                  </button>
+                ))}
+              </nav>
+              <div className="max-w-6xl mx-auto mt-3 pt-3 border-t border-stone-200 flex items-center justify-between">
+                {user ? (
+                  <div className="w-full flex items-center justify-between gap-3">
+                    <span className="text-xs text-stone-500">已登录：{user.name}</span>
+                    <div className="flex items-center gap-3">
+                      {user.role === 'admin' && <button onClick={() => { setMobileNavOpen(false); onNavigateToAdmin?.(); }} className="text-xs font-medium text-[#5C3A21] bg-transparent border-0 flex items-center gap-1"><LayoutDashboard className="w-3.5 h-3.5" />管理后台</button>}
+                      <button onClick={() => { setMobileNavOpen(false); onLogout?.(); }} className="text-xs text-rose-600 bg-transparent border-0">退出登录</button>
+                    </div>
+                  </div>
+                ) : (
+                  <><button onClick={onNavigateToLogin} className="text-xs text-stone-600 bg-transparent border-0">登录</button><button onClick={onNavigateToRegister} className="rounded-full bg-[#5C3A21] px-4 py-2 text-xs text-white border-0">注册会员</button></>
+                )}
+              </div>
+            </div>
+          )}
+        </header>
+      )}
+
       {/* Premium Minimal Header with Dropdowns */}
-      <div className={activeTab === 'home' ? 'hidden' : 'max-w-6xl mx-auto px-4 pt-8 pb-2 w-full'}>
+      <div className="hidden">
         <div id="cozy-premium-header" className="flex flex-col sm:flex-row items-center justify-between border-b border-[#A88C74]/20 pb-6 mb-8 gap-4 relative">
           
           {/* Left Side: Editorial Brand Logo */}
@@ -819,6 +1011,7 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
           onNavigate={handleTabClick}
           onNavigateToLogin={onNavigateToLogin}
           onNavigateToRegister={onNavigateToRegister}
+          onNavigateToAdmin={onNavigateToAdmin}
           onLogout={onLogout}
         />
       )}
@@ -857,12 +1050,15 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
           </div>
 
           {/* Menu list with inline specs accordion! */}
+          {menuLoading && (
+            <div className="text-center text-xs text-stone-400 py-10">正在同步今日菜单与库存…</div>
+          )}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-8 max-w-5xl mx-auto">
             {menuItems
               .filter(item => menuFilter === 'all' || item.category === menuFilter)
               .map(item => {
                 const isQuickCustomOpen = quickCustomizeItemId === item.id;
-                const matchesSavedCount = wishlist.filter(w => w.itemId === item.id).length;
+                const isDefaultSaved = wishlist.some(w => w.itemId === item.id && w.notes === '默认标准出杯');
 
                 return (
                   <div key={item.id} className="bg-white border border-[#A88C74]/20 rounded-3xl overflow-hidden shadow-xs hover:shadow-md transition duration-300 flex flex-col h-full transform hover:-translate-y-1">
@@ -878,6 +1074,11 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
                         />
                         <span className="absolute top-3 left-3 bg-[#5C3A21] text-white px-3 py-1 text-xs font-bold font-serif rounded-lg">
                           ¥ {item.price}
+                        </span>
+                        <span className={`absolute bottom-3 left-3 px-2.5 py-1 text-[9px] font-bold rounded-lg backdrop-blur-md ${
+                          item.stock === 0 ? 'bg-rose-700 text-white' : item.stock <= 5 ? 'bg-amber-100/95 text-amber-900' : 'bg-white/90 text-[#5C3A21]'
+                        }`}>
+                          {item.stock === 0 ? '今日售罄' : item.stock <= 5 ? `仅余 ${item.stock} 份` : `今日可售 ${item.stock} 份`}
                         </span>
                       </div>
 
@@ -895,6 +1096,17 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
                           <p className="text-xs text-stone-500 leading-relaxed font-light">
                             {item.desc}
                           </p>
+                          {item.beanBatch && item.category === 'coffee' && (
+                            <a
+                              href={`/origin/${encodeURIComponent(item.beanBatch.id)}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center gap-1.5 text-[10px] font-bold tracking-wider text-amber-800 hover:text-[#5C3A21] bg-transparent border-none p-0 cursor-pointer"
+                            >
+                              <Globe2 className="w-3.5 h-3.5" />
+                              查看豆源信息
+                            </a>
+                          )}
                         </div>
 
                         {/* Control toggles */}
@@ -902,25 +1114,32 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
                           <button 
                             type="button"
                             onClick={() => toggleQuickCustomize(item.id)}
+                            disabled={item.stock === 0}
                             className={`flex-1 py-2.5 rounded-xl text-xs font-bold font-serif transition border-none cursor-pointer ${
-                              isQuickCustomOpen 
+                              item.stock === 0
+                                ? 'bg-stone-100 text-stone-400 cursor-not-allowed'
+                                : isQuickCustomOpen
                                 ? 'bg-amber-800 text-white' 
                                 : 'bg-[#EADECE]/30 hover:bg-[#5C3A21]/10 text-[#5C3A21]'
                             }`}
                           >
-                            {isQuickCustomOpen ? '⚙️ 折叠参数配方' : '🎯 制定高定制参'}
+                            {item.stock === 0 ? '今日已售罄' : isQuickCustomOpen ? '⚙️ 折叠参数配方' : '🎯 制定高定制参'}
                           </button>
 
                           <button 
                             type="button"
-                            onClick={() => handleAddToWishlistDefault(item)}
-                            className="px-3.5 py-2.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-xl transition border-none cursor-pointer flex items-center justify-center gap-1"
-                            title="默认加入心愿单"
+                            onClick={() => handleToggleWishlistDefault(item)}
+                            disabled={item.stock === 0 && !isDefaultSaved}
+                            aria-pressed={isDefaultSaved}
+                            className={`min-w-[92px] px-3.5 py-2.5 rounded-xl transition border cursor-pointer flex items-center justify-center gap-1.5 disabled:opacity-35 disabled:cursor-not-allowed text-xs font-medium ${
+                              isDefaultSaved
+                                ? 'bg-rose-50 border-rose-200 text-rose-700 hover:bg-white'
+                                : 'bg-white border-stone-200 text-stone-600 hover:border-rose-200 hover:text-rose-600'
+                            }`}
+                            title={isDefaultSaved ? '取消收藏' : '收藏到心愿单'}
                           >
-                            <Heart className={`w-4 h-4 ${addedAnimationId === item.id ? 'fill-rose-600 text-rose-600 animate-ping' : 'text-rose-500'}`} />
-                            {matchesSavedCount > 0 && (
-                              <span className="text-[10px] font-bold font-mono">({matchesSavedCount})</span>
-                            )}
+                            <Heart className={`w-4 h-4 ${isDefaultSaved ? 'fill-rose-600 text-rose-600' : 'text-current'} ${addedAnimationId === item.id ? 'scale-110' : ''}`} />
+                            <span>{isDefaultSaved ? '已收藏' : '收藏'}</span>
                           </button>
                         </div>
                       </div>
@@ -2251,6 +2470,7 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
 
         </div>
       )}
+      <CoffeeAssistant />
     </div>
   );
 }

@@ -2,7 +2,7 @@ import fs from "fs/promises";
 import path from "path";
 import crypto from "crypto";
 import mysql from "mysql2/promise";
-import { User, Order, UserRole, UserStatus, PrintJob } from "./types.ts";
+import { User, Order, UserRole, UserStatus, PrintJob, MenuProduct, BeanBatch, WishlistItem } from "./types.ts";
 
 export interface StoredUser extends User {
   salt: string;
@@ -13,7 +13,129 @@ interface JsonDatabase {
   users: StoredUser[];
   orders: Order[];
   printJobs?: PrintJob[];
+  products?: MenuProduct[];
+  beanBatches?: BeanBatch[];
+  wishlists?: { ownerUserId: string; items: WishlistItem[] }[];
 }
+
+const SEEDED_BEAN_BATCHES: BeanBatch[] = [
+  {
+    id: "batch-col-cauca-2026-01",
+    lotCode: "CC-COL-2026-01",
+    country: "哥伦比亚",
+    region: "考卡省 · 波帕扬",
+    farm: "考卡高地小农拼配批次",
+    altitude: "1,650–1,900 m",
+    variety: "Caturra · Castillo",
+    process: "水洗处理",
+    roastLevel: "中深烘焙",
+    flavorNotes: ["黑巧克力", "烤坚果", "焦糖", "圆润余韵"],
+    harvestSeason: "2026年4月—6月",
+    roastedAt: "2026-10-12",
+    status: "active",
+    story: "考卡高地火山土壤与稳定昼夜温差带来扎实甜感。这一批次以坚果、焦糖和黑巧克力为主轴，适合与牛奶融合，是卡布奇诺的意式基底。",
+    image: "https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?auto=format&fit=crop&w=1600&q=85",
+    latitude: 2.44,
+    longitude: -76.61,
+    profile: {
+      producer: "考卡高地 18 户小农联合批次",
+      microRegion: "波帕扬高原 · 安第斯山脉西侧",
+      terrain: "高山缓坡与河谷交错，昼夜温差明显",
+      temperature: "年均 17–21°C",
+      rainfall: "约 1,800–2,100 mm / 年",
+      soil: "富含有机质的火山灰壤土",
+      harvestMethod: "人工分批采摘成熟红果",
+      drying: "高架棚床缓慢干燥 10–14 天",
+      moisture: "10.6%",
+      screen: "16–18 目",
+      exporter: "Cauca Regional Coffee Network",
+      arrival: "2026年9月",
+      recommendedBrew: "意式浓缩 18g / 36g / 28秒，适合奶咖",
+      traceability: ["小农地块采收", "合作站浮选与去皮", "批次水洗发酵", "干燥与分级", "门店烘焙入库"],
+    },
+  },
+  {
+    id: "batch-eth-yirgacheffe-2026-01",
+    lotCode: "YR-ETH-2026-01",
+    country: "埃塞俄比亚",
+    region: "耶加雪菲 · 科契尔",
+    farm: "科契尔小农合作批次",
+    altitude: "1,900–2,100 m",
+    variety: "Ethiopian Heirloom",
+    process: "水洗处理",
+    roastLevel: "浅烘焙",
+    flavorNotes: ["茉莉花", "柠檬柑橘", "蜂蜜", "红茶余韵"],
+    harvestSeason: "2025年11月—2026年1月",
+    roastedAt: "2026-10-15",
+    status: "active",
+    story: "来自耶加雪菲高海拔小农地块。昼夜温差让咖啡果缓慢成熟，水洗处理呈现清晰花香、明亮柑橘酸质与干净回甘。",
+    image: "https://images.unsplash.com/photo-1447933601403-0c6688de566e?auto=format&fit=crop&w=1600&q=85",
+    latitude: 6.16,
+    longitude: 38.2,
+    profile: {
+      producer: "科契尔小农合作批次",
+      microRegion: "Gedeo Zone · Kochere Woreda",
+      terrain: "高海拔林下种植，坡地云雾环境",
+      temperature: "年均 15–19°C",
+      rainfall: "约 1,500–2,000 mm / 年",
+      soil: "深层红褐色火山土",
+      harvestMethod: "人工采摘全熟红果",
+      drying: "水洗后高架床翻晒 12–16 天",
+      moisture: "10.4%",
+      screen: "14–16 目",
+      exporter: "Yirgacheffe Coffee Farmers Cooperative",
+      arrival: "2026年9月",
+      recommendedBrew: "V60：15g / 240g / 92°C / 2分30秒",
+      traceability: ["农户当日交果", "处理站密度浮选", "水洗发酵与清洗", "高架床干燥", "杯测分级与批次封存"],
+    },
+  },
+  {
+    id: "batch-bra-cerrado-2026-01",
+    lotCode: "CR-BRA-2026-01",
+    country: "巴西",
+    region: "米纳斯吉拉斯 · 喜拉多",
+    farm: "喜拉多产区精选批次",
+    altitude: "1,050–1,250 m",
+    variety: "Mundo Novo · Catuaí",
+    process: "日晒处理",
+    roastLevel: "中度烘焙",
+    flavorNotes: ["榛果", "可可", "黄糖", "成熟果甜"],
+    harvestSeason: "2026年5月—8月",
+    roastedAt: "2026-10-10",
+    status: "active",
+    story: "喜拉多干燥而稳定的采收季适合日晒处理，形成低酸、榛果与可可调性的甜感基底，与生椰厚乳结合后仍能保留清晰咖啡香。",
+    image: "https://images.unsplash.com/photo-1442512595331-e89e73853f31?auto=format&fit=crop&w=1600&q=85",
+    latitude: -18.9,
+    longitude: -46.9,
+    profile: {
+      producer: "喜拉多产区精选庄园联合批次",
+      microRegion: "Cerrado Mineiro · Minas Gerais",
+      terrain: "平缓高原，干湿季分明，机械化与人工精选结合",
+      temperature: "年均 18–23°C",
+      rainfall: "约 1,200–1,600 mm / 年",
+      soil: "排水良好的红色黏质土",
+      harvestMethod: "成熟度筛选后分区采收",
+      drying: "整果日晒 16–20 天",
+      moisture: "10.8%",
+      screen: "17–18 目",
+      exporter: "Cerrado Producers Origin Network",
+      arrival: "2026年8月",
+      recommendedBrew: "意式浓缩 19g / 40g / 27秒，适合冰饮与椰乳",
+      traceability: ["庄园分区采收", "成熟度筛选", "整果日晒", "脱壳与尺寸分级", "到港复检与烘焙"],
+    },
+  },
+];
+
+const SEEDED_PRODUCTS: MenuProduct[] = [
+  { id: 1, name: "温暖经典卡布奇诺", price: 30, category: "coffee", img: "https://images.unsplash.com/photo-1572442388796-11668a67e53d?w=500", desc: "传统意式拼配现磨，绵密细腻的厚奶泡交融黄金油脂，附上古典肉桂微香。", stock: 30, active: true, beanBatchId: "batch-col-cauca-2026-01" },
+  { id: 2, name: "衣索比亚耶加雪菲手冲", price: 34, category: "coffee", img: "https://images.unsplash.com/photo-1514432324607-a09d9b4aefdd?w=500", desc: "庄园浅烘。优雅茉莉花香、澄亮柠檬柑橘风味、酸质纯净，回甘细腻温柔。", stock: 12, active: true, beanBatchId: "batch-eth-yirgacheffe-2026-01" },
+  { id: 3, name: "京都宇治抹茶拿铁", price: 28, category: "tea", img: "https://images.unsplash.com/photo-1544787219-7f47ccb76574?w=500", desc: "日本顶级宇治抹茶现刷，清润的绿意茶香交融温润醇厚新西兰牛乳。", stock: 24, active: true, beanBatchId: null },
+  { id: 4, name: "皇家庄园伯爵红茶", price: 25, category: "tea", img: "https://images.unsplash.com/photo-1556679343-c7306c1976bc?w=500", desc: "手选皇家伯爵红茶拼配，浸润清新佛手柑精油，口感澄澈爽快，散发优雅英伦气息。", stock: 18, active: true, beanBatchId: null },
+  { id: 5, name: "拿破仑生椰厚乳特调", price: 32, category: "coffee", img: "https://images.unsplash.com/photo-1517701604599-bb29b565090c?w=500", desc: "冷感厚醇生椰厚乳，注入饱满双份火山拼配浓缩，醇甜芳香在口腔回旋绽放。", stock: 20, active: true, beanBatchId: "batch-bra-cerrado-2026-01" },
+  { id: 6, name: "纽约传统香草重乳酪蛋糕", price: 36, category: "dessert", img: "https://images.unsplash.com/photo-1563729784474-d77dbb933a9e?w=500", desc: "慢火温水烘制。芝士层浓醇幼滑、入口即化，伴随淡淡马达加斯加香草籽香气。", stock: 8, active: true, beanBatchId: null },
+  { id: 7, name: "意式传统手作正宗提拉米苏", price: 38, category: "dessert", img: "https://images.unsplash.com/photo-1571115177098-24ec42ed204d?w=500", desc: "原浆马斯卡彭慕斯，微苦法芙娜可可粉、浸透咖啡酒指形饼，苦甜交感，风味无双。", stock: 6, active: true, beanBatchId: null },
+  { id: 8, name: "英式红熟蔓越莓软司康", price: 18, category: "dessert", img: "https://images.unsplash.com/photo-1509440159596-0249088772ff?w=500", desc: "外皮金黄酥脆，麦香温和。融入精选红提蔓越莓干，每一口都酸甜香酥。", stock: 16, active: true, beanBatchId: null },
+];
 
 const packageJsonPath = process.env.npm_package_json;
 const projectRoot = packageJsonPath
@@ -137,6 +259,63 @@ export async function initSqliteDb(): Promise<void> {
       `);
 
       await mysqlPool.query(`
+        CREATE TABLE IF NOT EXISTS coffee_bean_batches (
+          id VARCHAR(255) PRIMARY KEY,
+          lotCode VARCHAR(255) UNIQUE NOT NULL,
+          country VARCHAR(255) NOT NULL,
+          region VARCHAR(255) NOT NULL,
+          farm VARCHAR(255) NOT NULL,
+          altitude VARCHAR(255) NOT NULL,
+          variety VARCHAR(255) NOT NULL,
+          process VARCHAR(255) NOT NULL,
+          roastLevel VARCHAR(255) NOT NULL,
+          flavorNotes TEXT NOT NULL,
+          harvestSeason VARCHAR(255) NOT NULL,
+          roastedAt VARCHAR(255) NOT NULL,
+          status VARCHAR(50) NOT NULL,
+          story TEXT NOT NULL,
+          image VARCHAR(1000) NOT NULL,
+          latitude DOUBLE NOT NULL DEFAULT 0,
+          longitude DOUBLE NOT NULL DEFAULT 0,
+          profile LONGTEXT NULL
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+      `);
+
+      await mysqlPool.query(`
+        CREATE TABLE IF NOT EXISTS products (
+          id INT PRIMARY KEY,
+          name VARCHAR(255) NOT NULL,
+          price DOUBLE NOT NULL,
+          category VARCHAR(50) NOT NULL,
+          img VARCHAR(1000) NOT NULL,
+          description TEXT NOT NULL,
+          stock INT NOT NULL DEFAULT 0,
+          active TINYINT(1) NOT NULL DEFAULT 1,
+          beanBatchId VARCHAR(255),
+          FOREIGN KEY (beanBatchId) REFERENCES coffee_bean_batches(id) ON DELETE SET NULL
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+      `);
+
+      await mysqlPool.query(`
+        CREATE TABLE IF NOT EXISTS wishlist_items (
+          wishId VARCHAR(255) PRIMARY KEY,
+          ownerUserId VARCHAR(255) NOT NULL,
+          itemId INT,
+          name VARCHAR(255) NOT NULL,
+          price DOUBLE NOT NULL,
+          category VARCHAR(50) NOT NULL,
+          img VARCHAR(1000) NOT NULL,
+          sugar VARCHAR(255) NOT NULL,
+          milk VARCHAR(255) NOT NULL,
+          temp VARCHAR(255) NOT NULL,
+          size VARCHAR(255) NOT NULL,
+          notes TEXT,
+          addedAt VARCHAR(255) NOT NULL,
+          FOREIGN KEY (ownerUserId) REFERENCES users(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+      `);
+
+      await mysqlPool.query(`
         CREATE TABLE IF NOT EXISTS orders (
           id VARCHAR(255) PRIMARY KEY,
           buyerName VARCHAR(255) NOT NULL,
@@ -200,6 +379,25 @@ export async function initSqliteDb(): Promise<void> {
         );
       }
 
+      const [batchLatitudeColumns]: [any[], any] = await mysqlPool.query(
+        "SHOW COLUMNS FROM coffee_bean_batches LIKE 'latitude'"
+      );
+      if (batchLatitudeColumns.length === 0) {
+        await mysqlPool.query("ALTER TABLE coffee_bean_batches ADD COLUMN latitude DOUBLE NOT NULL DEFAULT 0 AFTER image");
+      }
+      const [batchLongitudeColumns]: [any[], any] = await mysqlPool.query(
+        "SHOW COLUMNS FROM coffee_bean_batches LIKE 'longitude'"
+      );
+      if (batchLongitudeColumns.length === 0) {
+        await mysqlPool.query("ALTER TABLE coffee_bean_batches ADD COLUMN longitude DOUBLE NOT NULL DEFAULT 0 AFTER latitude");
+      }
+      const [batchProfileColumns]: [any[], any] = await mysqlPool.query(
+        "SHOW COLUMNS FROM coffee_bean_batches LIKE 'profile'"
+      );
+      if (batchProfileColumns.length === 0) {
+        await mysqlPool.query("ALTER TABLE coffee_bean_batches ADD COLUMN profile LONGTEXT NULL AFTER longitude");
+      }
+
       // Usernames are deliberately case-sensitive. Keep legacy databases aligned.
       await mysqlPool.query(
         "ALTER TABLE users MODIFY username VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL"
@@ -252,6 +450,34 @@ export async function initSqliteDb(): Promise<void> {
 
       if (importedUserCount > 0) {
         console.log(`🔄 Migrated ${importedUserCount} local account(s) into MySQL.`);
+      }
+
+      for (const batch of SEEDED_BEAN_BATCHES) {
+        await mysqlPool.query(
+          `INSERT INTO coffee_bean_batches
+           (id, lotCode, country, region, farm, altitude, variety, process, roastLevel, flavorNotes, harvestSeason, roastedAt, status, story, image, latitude, longitude, profile)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON DUPLICATE KEY UPDATE
+             harvestSeason = VALUES(harvestSeason), latitude = VALUES(latitude), longitude = VALUES(longitude), profile = VALUES(profile)`,
+          [batch.id, batch.lotCode, batch.country, batch.region, batch.farm, batch.altitude, batch.variety, batch.process, batch.roastLevel, JSON.stringify(batch.flavorNotes), batch.harvestSeason, batch.roastedAt, batch.status, batch.story, batch.image, batch.latitude, batch.longitude, JSON.stringify(batch.profile)]
+        );
+      }
+
+      const [productCountRows]: [any[], any] = await mysqlPool.query("SELECT COUNT(*) AS count FROM products");
+      if (Number(productCountRows[0]?.count || 0) === 0) {
+        for (const product of SEEDED_PRODUCTS) {
+          await mysqlPool.query(
+            `INSERT INTO products (id, name, price, category, img, description, stock, active, beanBatchId)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [product.id, product.name, product.price, product.category, product.img, product.desc, product.stock, product.active ? 1 : 0, product.beanBatchId || null]
+          );
+        }
+      }
+      for (const product of SEEDED_PRODUCTS.filter((item) => item.beanBatchId)) {
+        await mysqlPool.query(
+          "UPDATE products SET beanBatchId = ? WHERE id = ? AND (beanBatchId IS NULL OR beanBatchId = '')",
+          [product.beanBatchId, product.id]
+        );
       }
 
       // 4. Prepopulate database users if empty
@@ -429,6 +655,41 @@ export async function initSqliteDb(): Promise<void> {
     }
 
     let modified = false;
+
+    if (!Array.isArray(db.beanBatches) || db.beanBatches.length === 0) {
+      db.beanBatches = structuredClone(SEEDED_BEAN_BATCHES);
+      modified = true;
+    } else {
+      for (const seededBatch of SEEDED_BEAN_BATCHES) {
+        const existingBatch = db.beanBatches.find((batch) => batch.id === seededBatch.id);
+        if (!existingBatch) {
+          db.beanBatches.push(structuredClone(seededBatch));
+          modified = true;
+        } else if (existingBatch.harvestSeason !== seededBatch.harvestSeason || existingBatch.latitude == null || existingBatch.longitude == null || !existingBatch.profile) {
+          existingBatch.harvestSeason = seededBatch.harvestSeason;
+          existingBatch.latitude = seededBatch.latitude;
+          existingBatch.longitude = seededBatch.longitude;
+          existingBatch.profile = structuredClone(seededBatch.profile);
+          modified = true;
+        }
+      }
+    }
+    if (!Array.isArray(db.products) || db.products.length === 0) {
+      db.products = structuredClone(SEEDED_PRODUCTS);
+      modified = true;
+    } else {
+      for (const seededProduct of SEEDED_PRODUCTS.filter((product) => product.beanBatchId)) {
+        const existingProduct = db.products.find((product) => product.id === seededProduct.id);
+        if (existingProduct && !existingProduct.beanBatchId) {
+          existingProduct.beanBatchId = seededProduct.beanBatchId;
+          modified = true;
+        }
+      }
+    }
+    if (!Array.isArray(db.wishlists)) {
+      db.wishlists = [];
+      modified = true;
+    }
 
     // Earlier versions stored users in users-db.json. Merge any accounts that
     // are missing from the current database so an upgrade does not make a
@@ -893,6 +1154,211 @@ export async function insertOrder(order: Order): Promise<void> {
   }
 
   const db = await readJsonDb();
+  db.orders.push(order);
+  await writeJsonDb(db);
+}
+
+// ==================== Menu, Origin Batch, Inventory & Wishlist ====================
+
+function parseFlavorNotes(value: unknown): string[] {
+  if (Array.isArray(value)) return value.map(String);
+  if (typeof value !== "string") return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.map(String) : [];
+  } catch {
+    return value.split("、").map((item) => item.trim()).filter(Boolean);
+  }
+}
+
+function parseOriginProfile(value: unknown, fallback: BeanBatch["profile"]): BeanBatch["profile"] {
+  if (value && typeof value === "object") return value as BeanBatch["profile"];
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      if (parsed && typeof parsed === "object") return parsed as BeanBatch["profile"];
+    } catch {
+      // Fall through to the seeded profile for legacy rows.
+    }
+  }
+  return fallback;
+}
+
+export async function getMenuProducts(includeInactive = false): Promise<MenuProduct[]> {
+  if (useMySQL && mysqlPool) {
+    const [rows]: [any[], any] = await mysqlPool.query(
+      `SELECT p.id, p.name, p.price, p.category, p.img, p.description, p.stock, p.active, p.beanBatchId,
+              b.id AS batch_id, b.lotCode, b.country, b.region, b.farm, b.altitude, b.variety,
+              b.process, b.roastLevel, b.flavorNotes, b.harvestSeason, b.roastedAt,
+              b.status AS batchStatus, b.story, b.image AS batchImage, b.latitude, b.longitude, b.profile
+       FROM products p
+       LEFT JOIN coffee_bean_batches b ON b.id = p.beanBatchId
+       ${includeInactive ? "" : "WHERE p.active = 1"}
+       ORDER BY p.id`
+    );
+    return rows.map((row) => ({
+      id: Number(row.id),
+      name: row.name,
+      price: Number(row.price),
+      category: row.category,
+      img: row.img,
+      desc: row.description,
+      stock: Math.max(0, Number(row.stock)),
+      active: Boolean(row.active),
+      beanBatchId: row.beanBatchId || null,
+      beanBatch: row.batch_id ? {
+        id: row.batch_id,
+        lotCode: row.lotCode,
+        country: row.country,
+        region: row.region,
+        farm: row.farm,
+        altitude: row.altitude,
+        variety: row.variety,
+        process: row.process,
+        roastLevel: row.roastLevel,
+        flavorNotes: parseFlavorNotes(row.flavorNotes),
+        harvestSeason: row.harvestSeason,
+        roastedAt: row.roastedAt,
+        status: row.batchStatus,
+        story: row.story,
+        image: row.batchImage,
+        latitude: Number(row.latitude),
+        longitude: Number(row.longitude),
+        profile: parseOriginProfile(
+          row.profile,
+          SEEDED_BEAN_BATCHES.find((batch) => batch.id === row.batch_id)?.profile || SEEDED_BEAN_BATCHES[0].profile
+        ),
+      } : null,
+    }));
+  }
+
+  const db = await readJsonDb();
+  const batches = db.beanBatches || [];
+  return (db.products || SEEDED_PRODUCTS)
+    .filter((product) => includeInactive || product.active)
+    .map((product) => ({
+      ...product,
+      beanBatch: product.beanBatchId
+        ? batches.find((batch) => batch.id === product.beanBatchId) || null
+        : null,
+    }));
+}
+
+export async function updateProductInventory(id: number, stock: number, active: boolean): Promise<MenuProduct | null> {
+  const safeStock = Math.max(0, Math.floor(stock));
+  if (useMySQL && mysqlPool) {
+    const [result]: [any, any] = await mysqlPool.query(
+      "UPDATE products SET stock = ?, active = ? WHERE id = ?",
+      [safeStock, active ? 1 : 0, id]
+    );
+    if (!result.affectedRows) return null;
+    return (await getMenuProducts(true)).find((product) => product.id === id) || null;
+  }
+
+  const db = await readJsonDb();
+  const product = (db.products || []).find((item) => item.id === id);
+  if (!product) return null;
+  product.stock = safeStock;
+  product.active = active;
+  await writeJsonDb(db);
+  return { ...product, beanBatch: product.beanBatchId ? (db.beanBatches || []).find((batch) => batch.id === product.beanBatchId) || null : null };
+}
+
+export async function getWishlistByUserId(ownerUserId: string): Promise<WishlistItem[]> {
+  if (useMySQL && mysqlPool) {
+    const [rows]: [any[], any] = await mysqlPool.query(
+      `SELECT wishId, itemId, name, price, category, img, sugar, milk, temp, size, notes, addedAt
+       FROM wishlist_items WHERE ownerUserId = ? ORDER BY addedAt DESC`,
+      [ownerUserId]
+    );
+    return rows.map((row) => ({ ...row, itemId: row.itemId == null ? undefined : Number(row.itemId), price: Number(row.price), notes: row.notes || "" }));
+  }
+  const db = await readJsonDb();
+  return structuredClone((db.wishlists || []).find((entry) => entry.ownerUserId === ownerUserId)?.items || []);
+}
+
+export async function replaceWishlist(ownerUserId: string, items: WishlistItem[]): Promise<void> {
+  if (useMySQL && mysqlPool) {
+    const connection = await mysqlPool.getConnection();
+    try {
+      await connection.beginTransaction();
+      await connection.query("DELETE FROM wishlist_items WHERE ownerUserId = ?", [ownerUserId]);
+      for (const item of items) {
+        await connection.query(
+          `INSERT INTO wishlist_items
+           (wishId, ownerUserId, itemId, name, price, category, img, sugar, milk, temp, size, notes, addedAt)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [item.wishId, ownerUserId, item.itemId ?? null, item.name, item.price, item.category, item.img, item.sugar, item.milk, item.temp, item.size, item.notes || "", item.addedAt]
+        );
+      }
+      await connection.commit();
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+    return;
+  }
+
+  const db = await readJsonDb();
+  db.wishlists ||= [];
+  const existing = db.wishlists.find((entry) => entry.ownerUserId === ownerUserId);
+  if (existing) existing.items = structuredClone(items);
+  else db.wishlists.push({ ownerUserId, items: structuredClone(items) });
+  await writeJsonDb(db);
+}
+
+export async function insertOrderWithInventory(order: Order, productQuantities: Map<number, number>): Promise<void> {
+  if (useMySQL && mysqlPool) {
+    const connection = await mysqlPool.getConnection();
+    try {
+      await connection.beginTransaction();
+      for (const [productId, quantity] of productQuantities) {
+        const [rows]: [any[], any] = await connection.query(
+          "SELECT name, stock, active FROM products WHERE id = ? FOR UPDATE",
+          [productId]
+        );
+        const product = rows[0];
+        if (!product || !product.active) throw new Error("PRODUCT_UNAVAILABLE:商品已下架");
+        if (Number(product.stock) < quantity) throw new Error(`INSUFFICIENT_STOCK:${product.name}:${product.stock}`);
+      }
+
+      await connection.query(
+        "INSERT INTO orders (id, buyerName, buyerUsername, totalPrice, orderTime, type) VALUES (?, ?, ?, ?, ?, ?)",
+        [order.id, order.buyerName, order.buyerUsername, order.totalPrice, order.orderTime, order.type]
+      );
+      for (const item of order.items) {
+        await connection.query(
+          `INSERT INTO order_items (id, orderId, name, price, size, sugar, milk, temp, notes, img)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [item.id, order.id, item.name, item.price, item.size, item.sugar, item.milk, item.temp, item.notes || "", item.img || ""]
+        );
+      }
+      for (const [productId, quantity] of productQuantities) {
+        await connection.query("UPDATE products SET stock = stock - ? WHERE id = ?", [quantity, productId]);
+      }
+      await connection.commit();
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+    return;
+  }
+
+  const db = await readJsonDb();
+  db.products ||= structuredClone(SEEDED_PRODUCTS);
+  for (const [productId, quantity] of productQuantities) {
+    const product = db.products.find((item) => item.id === productId);
+    if (!product || !product.active) throw new Error("PRODUCT_UNAVAILABLE:商品已下架");
+    if (product.stock < quantity) throw new Error(`INSUFFICIENT_STOCK:${product.name}:${product.stock}`);
+  }
+  for (const [productId, quantity] of productQuantities) {
+    const product = db.products.find((item) => item.id === productId)!;
+    product.stock -= quantity;
+  }
   db.orders.push(order);
   await writeJsonDb(db);
 }

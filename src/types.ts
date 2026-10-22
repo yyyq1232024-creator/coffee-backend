@@ -37,6 +37,70 @@ export interface OrderItem {
   img?: string;
 }
 
+export interface BeanBatch {
+  id: string;
+  lotCode: string;
+  country: string;
+  region: string;
+  farm: string;
+  altitude: string;
+  variety: string;
+  process: string;
+  roastLevel: string;
+  flavorNotes: string[];
+  harvestSeason: string;
+  roastedAt: string;
+  status: 'active' | 'archived';
+  story: string;
+  image: string;
+  latitude: number;
+  longitude: number;
+  profile: {
+    producer: string;
+    microRegion: string;
+    terrain: string;
+    temperature: string;
+    rainfall: string;
+    soil: string;
+    harvestMethod: string;
+    drying: string;
+    moisture: string;
+    screen: string;
+    exporter: string;
+    arrival: string;
+    recommendedBrew: string;
+    traceability: string[];
+  };
+}
+
+export interface MenuProduct {
+  id: number;
+  name: string;
+  price: number;
+  category: 'coffee' | 'tea' | 'dessert';
+  img: string;
+  desc: string;
+  stock: number;
+  active: boolean;
+  beanBatchId?: string | null;
+  beanBatch?: BeanBatch | null;
+}
+
+export interface WishlistItem {
+  wishId: string;
+  itemId?: number;
+  name: string;
+  price: number;
+  category: string;
+  img: string;
+  sugar: string;
+  milk: string;
+  temp: string;
+  size: string;
+  notes: string;
+  addedAt: string;
+}
+
 export interface Order {
   id: string;
   items: OrderItem[];
