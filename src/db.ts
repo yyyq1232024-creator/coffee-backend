@@ -252,6 +252,7 @@ export async function initSqliteDb(): Promise<void> {
           role VARCHAR(50) NOT NULL,
           status VARCHAR(50) NOT NULL,
           bio TEXT,
+          avatar LONGTEXT NULL,
           createdAt VARCHAR(255) NOT NULL,
           salt VARCHAR(255) NOT NULL,
           passwordHash VARCHAR(255) NOT NULL
@@ -396,6 +397,13 @@ export async function initSqliteDb(): Promise<void> {
       );
       if (batchProfileColumns.length === 0) {
         await mysqlPool.query("ALTER TABLE coffee_bean_batches ADD COLUMN profile LONGTEXT NULL AFTER longitude");
+      }
+
+      const [userAvatarColumns]: [any[], any] = await mysqlPool.query(
+        "SHOW COLUMNS FROM users LIKE 'avatar'"
+      );
+      if (userAvatarColumns.length === 0) {
+        await mysqlPool.query("ALTER TABLE users ADD COLUMN avatar LONGTEXT NULL AFTER bio");
       }
 
       // Usernames are deliberately case-sensitive. Keep legacy databases aligned.
@@ -876,7 +884,7 @@ export async function initSqliteDb(): Promise<void> {
 export async function getAllUsers(): Promise<User[]> {
   if (useMySQL && mysqlPool) {
     const [rows]: [any[], any] = await mysqlPool.query(
-      "SELECT id, username, name, email, role, status, bio, createdAt FROM users"
+      "SELECT id, username, name, email, role, status, bio, avatar, createdAt FROM users"
     );
     return rows.map((u) => ({
       id: u.id,
@@ -886,6 +894,7 @@ export async function getAllUsers(): Promise<User[]> {
       role: u.role as UserRole,
       status: u.status as UserStatus,
       bio: u.bio || "",
+      avatar: u.avatar || "",
       createdAt: u.createdAt,
     }));
   }
@@ -898,7 +907,7 @@ export async function getAllUsers(): Promise<User[]> {
 export async function getRawUsers(): Promise<StoredUser[]> {
   if (useMySQL && mysqlPool) {
     const [rows]: [any[], any] = await mysqlPool.query(
-      "SELECT id, username, name, email, role, status, bio, createdAt, salt, passwordHash FROM users"
+      "SELECT id, username, name, email, role, status, bio, avatar, createdAt, salt, passwordHash FROM users"
     );
     return rows.map((u) => ({
       id: u.id,
@@ -908,6 +917,7 @@ export async function getRawUsers(): Promise<StoredUser[]> {
       role: u.role as UserRole,
       status: u.status as UserStatus,
       bio: u.bio || "",
+      avatar: u.avatar || "",
       createdAt: u.createdAt,
       salt: u.salt,
       passwordHash: u.passwordHash,
@@ -922,7 +932,7 @@ export async function getRawUsers(): Promise<StoredUser[]> {
 export async function getUserById(id: string): Promise<User | null> {
   if (useMySQL && mysqlPool) {
     const [rows]: [any[], any] = await mysqlPool.query(
-      "SELECT id, username, name, email, role, status, bio, createdAt FROM users WHERE id = ?",
+      "SELECT id, username, name, email, role, status, bio, avatar, createdAt FROM users WHERE id = ?",
       [id]
     );
     if (!rows || rows.length === 0) return null;
@@ -935,6 +945,7 @@ export async function getUserById(id: string): Promise<User | null> {
       role: u.role as UserRole,
       status: u.status as UserStatus,
       bio: u.bio || "",
+      avatar: u.avatar || "",
       createdAt: u.createdAt,
     };
   }
@@ -951,7 +962,7 @@ export async function getStoredUserByUsername(username: string): Promise<StoredU
   const normalizedUsername = normalizeUsername(username);
   if (useMySQL && mysqlPool) {
     const [rows]: [any[], any] = await mysqlPool.query(
-      "SELECT id, username, name, email, role, status, bio, createdAt, salt, passwordHash FROM users WHERE BINARY username = BINARY ?",
+      "SELECT id, username, name, email, role, status, bio, avatar, createdAt, salt, passwordHash FROM users WHERE BINARY username = BINARY ?",
       [normalizedUsername]
     );
     if (!rows || rows.length === 0) return null;
@@ -964,6 +975,7 @@ export async function getStoredUserByUsername(username: string): Promise<StoredU
       role: u.role as UserRole,
       status: u.status as UserStatus,
       bio: u.bio || "",
+      avatar: u.avatar || "",
       createdAt: u.createdAt,
       salt: u.salt,
       passwordHash: u.passwordHash,
@@ -980,7 +992,7 @@ export async function getStoredUserByEmail(email: string): Promise<StoredUser | 
   const normalizedEmail = normalizeEmail(email);
   if (useMySQL && mysqlPool) {
     const [rows]: [any[], any] = await mysqlPool.query(
-      "SELECT id, username, name, email, role, status, bio, createdAt, salt, passwordHash FROM users WHERE LOWER(email) = LOWER(?)",
+      "SELECT id, username, name, email, role, status, bio, avatar, createdAt, salt, passwordHash FROM users WHERE LOWER(email) = LOWER(?)",
       [normalizedEmail]
     );
     if (!rows || rows.length === 0) return null;
@@ -993,6 +1005,7 @@ export async function getStoredUserByEmail(email: string): Promise<StoredUser | 
       role: u.role as UserRole,
       status: u.status as UserStatus,
       bio: u.bio || "",
+      avatar: u.avatar || "",
       createdAt: u.createdAt,
       salt: u.salt,
       passwordHash: u.passwordHash,

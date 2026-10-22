@@ -6,6 +6,7 @@ import {
 import { User as UserType, WishlistItem, MenuProduct } from '../types';
 import CoffeeHome from './CoffeeHome';
 import CoffeeAssistant from './CoffeeAssistant';
+import BeanOriginPage from './BeanOriginPage';
 
 interface CoffeeShopProps {
   user: UserType | null;
@@ -13,15 +14,17 @@ interface CoffeeShopProps {
   onNavigateToLogin: () => void;
   onNavigateToRegister: () => void;
   onNavigateToAdmin?: () => void;
+  onNavigateToProfile?: () => void;
   onLogout?: () => void;
 }
 
-export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateToRegister, onNavigateToAdmin, onLogout }: CoffeeShopProps) {
+export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateToRegister, onNavigateToAdmin, onNavigateToProfile, onLogout }: CoffeeShopProps) {
   // Navigation tabs: 'home' | 'menu' | 'builder' | 'wishlist' | 'about' | 'contact' | 'printer'
   const [activeTab, setActiveTab] = useState<'home' | 'menu' | 'builder' | 'wishlist' | 'about' | 'contact' | 'printer'>('home');
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [openDropdown, setOpenDropdown] = useState<'order' | 'about' | 'member' | null>(null);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [originBatchId, setOriginBatchId] = useState<string | null>(null);
 
   const handleTabClick = (tab: 'home' | 'menu' | 'builder' | 'wishlist' | 'about' | 'contact' | 'printer') => {
     setOpenDropdown(null);
@@ -46,6 +49,7 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
   const [menuFilter, setMenuFilter] = useState<'all' | 'coffee' | 'tea' | 'dessert'>('all');
   const [contactSuccess, setContactSuccess] = useState(false);
   const [wishlist, setWishlist] = useState<WishlistItem[]>([]);
+  const [selectedWishIds, setSelectedWishIds] = useState<string[]>([]);
   const [wishlistReady, setWishlistReady] = useState(false);
   const [addedAnimationId, setAddedAnimationId] = useState<number | null>(null);
   const [menuItems, setMenuItems] = useState<MenuProduct[]>([]);
@@ -83,11 +87,14 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
       setShowLoginModal(true);
       return;
     }
-    if (wishlist.length === 0) return;
+    if (selectedWishlist.length === 0) {
+      alert('请先从收藏配方中选择至少一杯加入本次订单。');
+      return;
+    }
     setCheckoutLoading(true);
     try {
       const jobId = "PRT-" + Math.floor(1000 + Math.random() * 9000) + "-" + Math.random().toString(36).substring(2, 8).toUpperCase();
-      const snapshot = [...wishlist];
+      const snapshot = [...selectedWishlist];
       const notesString = checkoutNotes.trim() ? `【客座座号/打包交代】${checkoutNotes.trim()}` : '';
       const checkoutRes = await fetch('/api/orders/checkout', {
         method: 'POST',
@@ -119,7 +126,7 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
       }
       const orderId = checkoutData.data?.id;
 
-      saveWishlist([]);
+      setSelectedWishIds([]);
       setReceiptItems([...snapshot]);
       setReceiptNumber(orderId);
       setLastPrintJobId(jobId);
@@ -283,7 +290,7 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
       try {
         const response = await fetch('/api/wishlist', { headers: { 'Authorization': `Bearer ${token}` } });
         const result = await response.json();
-        if (!response.ok || !result.success) throw new Error(result.error || '心愿卡读取失败');
+        if (!response.ok || !result.success) throw new Error(result.error || '收藏配方读取失败');
         let serverItems: WishlistItem[] = Array.isArray(result.data) ? result.data : [];
         if (serverItems.length === 0 && cached.length > 0) {
           const migration = await fetch('/api/wishlist', {
@@ -319,7 +326,7 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
         });
         if (!response.ok) {
           const result = await response.json().catch(() => ({}));
-          throw new Error(result.error || '心愿卡保存失败');
+          throw new Error(result.error || '收藏配方保存失败');
         }
       } catch (error) {
         console.error('Failed to persist wishlist:', error);
@@ -453,7 +460,7 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
   };
 
   const handleManualPrintFromWishlist = async () => {
-    if (wishlist.length === 0) return;
+    if (selectedWishlist.length === 0) return;
     if (!user || !token) {
       setShowLoginModal(true);
       return;
@@ -466,7 +473,7 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
           'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({
-          items: wishlist,
+          items: selectedWishlist,
           totalPrice: totalWishlistPrice
         })
       });
@@ -523,6 +530,7 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
     };
 
     saveWishlist([newItem, ...wishlist]);
+    setSelectedWishIds(current => [wishId, ...current]);
     setAddedAnimationId(item.id);
     setQuickCustomizeItemId(null); // fold panel
     
@@ -542,6 +550,7 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
     if (wishlist.some(isDefaultForProduct)) {
       // Also clears duplicates created by the old add-only heart behavior.
       saveWishlist(wishlist.filter(wish => !isDefaultForProduct(wish)));
+      setSelectedWishIds(current => current.filter(id => !wishlist.filter(isDefaultForProduct).some(wish => wish.wishId === id)));
       setAddedAnimationId(null);
       return;
     }
@@ -561,6 +570,7 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
       addedAt: new Date().toISOString()
     };
     saveWishlist([newItem, ...wishlist.filter(wish => !isDefaultForProduct(wish))]);
+    setSelectedWishIds(current => [wishId, ...current.filter(id => !wishlist.filter(isDefaultForProduct).some(wish => wish.wishId === id))]);
     setAddedAnimationId(item.id);
     setTimeout(() => {
       setAddedAnimationId(null);
@@ -596,7 +606,8 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
     };
 
     saveWishlist([newItem, ...wishlist]);
-    alert(`滴！已将您的专享温情特调「${customCupName}」完美写入您的心愿单卡片集合中。`);
+    setSelectedWishIds(current => [wishId, ...current]);
+    alert(`已保存专属特调「${customCupName}」，以后可以直接按此配方复购。`);
     
     // Redirect
     setActiveTab('wishlist');
@@ -607,6 +618,7 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
   // Delete single wishlist card
   const handleDeleteWishItem = (wishId: string) => {
     saveWishlist(wishlist.filter(item => item.wishId !== wishId));
+    setSelectedWishIds(current => current.filter(id => id !== wishId));
   };
 
   // Inline update handler inside wishlist view
@@ -644,16 +656,27 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
     }, 4000);
   };
 
-  const totalWishlistPrice = wishlist.reduce((sum, item) => sum + item.price, 0);
+  const selectedWishlist = wishlist.filter(item => selectedWishIds.includes(item.wishId));
+  const totalWishlistPrice = selectedWishlist.reduce((sum, item) => sum + item.price, 0);
   const primaryNavigation = [
     { tab: 'menu' as const, label: '菜单' },
     { tab: 'builder' as const, label: '私人特调' },
-    { tab: 'wishlist' as const, label: '心愿单', badge: wishlist.length },
+    { tab: 'wishlist' as const, label: '收藏配方', badge: wishlist.length },
     { tab: 'printer' as const, label: '吧台出单', badge: printQueue.filter(job => job.status === 'pending').length },
   ];
 
   return (
     <div id="coffee-shop-container" className="w-full">
+
+      {originBatchId && (
+        <div className="fixed inset-0 z-[100] overflow-y-auto bg-[#0E1110] animate-fadeIn" role="dialog" aria-modal="true" aria-label="咖啡豆源档案">
+          <BeanOriginPage
+            embedded
+            initialBatchId={originBatchId}
+            onClose={() => setOriginBatchId(null)}
+          />
+        </div>
+      )}
 
       {activeTab !== 'home' && (
         <header className="sticky top-0 z-40 border-b border-stone-200/80 bg-[#FCFBF8]/95 backdrop-blur-xl">
@@ -728,7 +751,9 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
                     onClick={() => setOpenDropdown(openDropdown === 'member' ? null : 'member')}
                     className="flex items-center gap-2 rounded-full border border-stone-200 bg-white py-1.5 pl-2 pr-3 text-xs text-stone-700 cursor-pointer"
                   >
-                    <span className="grid h-6 w-6 place-items-center rounded-full bg-[#EEE7DF] text-[#5C3A21]"><UserRound className="w-3.5 h-3.5" /></span>
+                    <span className="grid h-6 w-6 place-items-center overflow-hidden rounded-full bg-[#EEE7DF] text-[#5C3A21]">
+                      {user.avatar ? <img src={user.avatar} alt="" className="h-full w-full object-cover" /> : <UserRound className="w-3.5 h-3.5" />}
+                    </span>
                     <span className="max-w-20 truncate">{user.name}</span>
                     <ChevronDown className="w-3 h-3 text-stone-400" />
                   </button>
@@ -741,7 +766,8 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
                       {user.role === 'admin' && (
                         <button onClick={() => { setOpenDropdown(null); onNavigateToAdmin?.(); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-[#5C3A21] hover:bg-[#F5F0EA] flex items-center gap-2"><LayoutDashboard className="w-3.5 h-3.5" />管理后台</button>
                       )}
-                      <button onClick={() => handleTabClick('wishlist')} className="w-full rounded-lg px-3 py-2 text-left text-xs text-stone-600 hover:bg-stone-50">我的心愿单</button>
+                      <button onClick={() => { setOpenDropdown(null); onNavigateToProfile?.(); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-stone-600 hover:bg-stone-50 flex items-center gap-2"><UserRound className="w-3.5 h-3.5" />个人中心</button>
+                      <button onClick={() => handleTabClick('wishlist')} className="w-full rounded-lg px-3 py-2 text-left text-xs text-stone-600 hover:bg-stone-50">我的收藏配方</button>
                       <button onClick={() => { setOpenDropdown(null); onLogout?.(); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-rose-600 hover:bg-rose-50 flex items-center gap-2"><LogOut className="w-3.5 h-3.5" />退出登录</button>
                     </div>
                   )}
@@ -785,6 +811,7 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
                   <div className="w-full flex items-center justify-between gap-3">
                     <span className="text-xs text-stone-500">已登录：{user.name}</span>
                     <div className="flex items-center gap-3">
+                      <button onClick={() => { setMobileNavOpen(false); onNavigateToProfile?.(); }} className="text-xs font-medium text-[#5C3A21] bg-transparent border-0 flex items-center gap-1"><UserRound className="w-3.5 h-3.5" />个人中心</button>
                       {user.role === 'admin' && <button onClick={() => { setMobileNavOpen(false); onNavigateToAdmin?.(); }} className="text-xs font-medium text-[#5C3A21] bg-transparent border-0 flex items-center gap-1"><LayoutDashboard className="w-3.5 h-3.5" />管理后台</button>}
                       <button onClick={() => { setMobileNavOpen(false); onLogout?.(); }} className="text-xs text-rose-600 bg-transparent border-0">退出登录</button>
                     </div>
@@ -941,7 +968,7 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
                         onClick={() => handleTabClick('wishlist')}
                         className={`w-full text-left px-4 py-2 text-xs font-serif font-bold hover:bg-[#EADECE]/30 transition flex items-center justify-between ${activeTab === 'wishlist' ? 'text-[#8B5A2B] bg-[#EADECE]/15' : ''}`}
                       >
-                        <span>心愿高定特配簿</span>
+                        <span>我的收藏配方</span>
                         {wishlist.length > 0 && (
                           <span className="bg-red-600 text-white font-mono text-[9px] px-1.5 py-0.5 rounded-full font-bold">
                             {wishlist.length}
@@ -992,7 +1019,7 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
                         onClick={() => handleTabClick('wishlist')}
                         className={`w-full text-left px-4 py-2 text-xs font-serif font-bold hover:bg-[#EADECE]/30 transition flex items-center justify-between ${activeTab === 'wishlist' ? 'text-[#8B5A2B]' : ''}`}
                       >
-                        <span>心愿高定特配簿</span>
+                        <span>我的收藏配方</span>
                       </button>
                     </>
                   )}
@@ -1012,6 +1039,7 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
           onNavigateToLogin={onNavigateToLogin}
           onNavigateToRegister={onNavigateToRegister}
           onNavigateToAdmin={onNavigateToAdmin}
+          onNavigateToProfile={onNavigateToProfile}
           onLogout={onLogout}
         />
       )}
@@ -1097,15 +1125,14 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
                             {item.desc}
                           </p>
                           {item.beanBatch && item.category === 'coffee' && (
-                            <a
-                              href={`/origin/${encodeURIComponent(item.beanBatch.id)}`}
-                              target="_blank"
-                              rel="noreferrer"
+                            <button
+                              type="button"
+                              onClick={() => setOriginBatchId(item.beanBatch!.id)}
                               className="inline-flex items-center gap-1.5 text-[10px] font-bold tracking-wider text-amber-800 hover:text-[#5C3A21] bg-transparent border-none p-0 cursor-pointer"
                             >
                               <Globe2 className="w-3.5 h-3.5" />
                               查看豆源信息
-                            </a>
+                            </button>
                           )}
                         </div>
 
@@ -1136,7 +1163,7 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
                                 ? 'bg-rose-50 border-rose-200 text-rose-700 hover:bg-white'
                                 : 'bg-white border-stone-200 text-stone-600 hover:border-rose-200 hover:text-rose-600'
                             }`}
-                            title={isDefaultSaved ? '取消收藏' : '收藏到心愿单'}
+                            title={isDefaultSaved ? '取消收藏' : '收藏此配方'}
                           >
                             <Heart className={`w-4 h-4 ${isDefaultSaved ? 'fill-rose-600 text-rose-600' : 'text-current'} ${addedAnimationId === item.id ? 'scale-110' : ''}`} />
                             <span>{isDefaultSaved ? '已收藏' : '收藏'}</span>
@@ -1150,7 +1177,7 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
                       <div className="border-t-2 border-dashed border-[#A88C74]/20 bg-[#FAF9F5] p-5 space-y-4 animate-fadeIn">
                         <div className="text-[11px] font-bold text-[#5C3A21]/90 flex items-center gap-1 border-b border-[#A88C74]/10 pb-2">
                           <span>⚙️</span>
-                          <span>自定义「{item.name}」风味参数，完成后添加至心愿卡</span>
+                          <span>自定义「{item.name}」风味参数，完成后保存为常用配方</span>
                         </div>
 
                         <div className="grid grid-cols-2 gap-3 text-xs">
@@ -1237,7 +1264,7 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
                           className="w-full py-2.5 bg-[#5C3A21] hover:bg-amber-950 text-white font-bold rounded-xl text-xs font-serif transition border-none cursor-pointer flex items-center justify-center gap-2"
                         >
                           <Plus className="w-4 h-4" />
-                          保存风味参数并写入心愿本
+                          保存为我的常用配方
                         </button>
                       </div>
                     )}
@@ -1523,7 +1550,7 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
                   className="w-full py-3 bg-[#5C3A21] hover:bg-amber-950 text-white font-extrabold text-xs rounded-xl shadow transition duration-200 border-none cursor-pointer font-serif flex items-center justify-center gap-2"
                 >
                   <Plus className="w-4 h-4" />
-                  保存调协配方并保存至心愿卡
+                  保存这份私人特调配方
                 </button>
               </div>
 
@@ -1540,10 +1567,10 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
           
           <div className="text-center max-w-xl mx-auto space-y-2">
             <h2 className="text-2xl font-bold text-[#5C3A21] font-serif">
-              ❤️ 私人高定心愿风味特配簿
+              我的收藏配方
             </h2>
             <p className="text-xs text-stone-500 leading-relaxed">
-              这里记录了您在悠然大堂心系过的每一杯温情。支持极度自由的独立风味修改，更能完美一键导出收银台扫码纪念提单！
+              保存常喝口味和私人特调，下次回来可以直接选择配方再次下单。收藏不会在结账后消失。
             </p>
           </div>
 
@@ -1552,9 +1579,9 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
               <div className="w-16 h-16 bg-rose-50 text-rose-500 rounded-full flex items-center justify-center mx-auto text-3xl">
                 ♥
               </div>
-              <h3 className="text-base font-bold text-[#5C3A21] font-serif">您当前的手作心愿单为空色</h3>
+              <h3 className="text-base font-bold text-[#5C3A21] font-serif">还没有收藏配方</h3>
               <p className="text-xs text-stone-400 max-w-sm mx-auto leading-relaxed">
-                快去游览我们的 “手作茶点清单” 或 “调茶研制室” 配置属于您的心系饮品，再把它们打包存进这里！
+                在菜单收藏常喝饮品，或在私人特调中保存自己的口味；之后可随时一键复购。
               </p>
               <div className="flex gap-2.5 justify-center pt-2">
                 <button
@@ -1580,14 +1607,14 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
                 {/* Header info */}
                 <div className="flex items-center justify-between border-b border-[#A88C74]/20 pb-4">
                   <h3 className="text-sm font-bold text-[#5C3A21] font-serif flex items-center gap-1.5">
-                    <span>🛍️</span> 您的特选调协清单 ({wishlist.length} 杯/件)
+                    <span>☕</span> 已保存配方 ({wishlist.length})
                   </h3>
                   <button 
-                    onClick={() => { if (window.confirm('确认清空您珍藏的全部风味特配单吗？')) saveWishlist([]); }}
+                    onClick={() => { if (window.confirm('确认删除全部收藏配方吗？')) { saveWishlist([]); setSelectedWishIds([]); } }}
                     className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg text-[10px] font-bold transition flex items-center gap-1 border-none cursor-pointer font-serif"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
-                    清空配单
+                    清空收藏
                   </button>
                 </div>
 
@@ -1697,9 +1724,15 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
                       </div>
 
                       {/* Footer bar for wishlist cards */}
-                      <div className="flex items-center justify-between text-[10px] text-stone-400 border-t border-stone-100 pt-3.5 font-mono">
-                        <span>单据ID: {item.wishId}</span>
-                        <span>收录于: {new Date(item.addedAt).toLocaleDateString()}</span>
+                      <div className="flex items-center justify-between gap-3 border-t border-stone-100 pt-3.5">
+                        <span className="text-[10px] text-stone-400 font-mono">收藏于 {new Date(item.addedAt).toLocaleDateString()}</span>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedWishIds(current => current.includes(item.wishId) ? current.filter(id => id !== item.wishId) : [...current, item.wishId])}
+                          className={`rounded-xl border px-3 py-2 text-[10px] font-bold cursor-pointer transition ${selectedWishIds.includes(item.wishId) ? 'border-[#5C3A21] bg-[#5C3A21] text-white' : 'border-stone-200 bg-white text-[#5C3A21] hover:border-[#8B5A2B]'}`}
+                        >
+                          {selectedWishIds.includes(item.wishId) ? '✓ 已加入本次订单' : '加入本次订单'}
+                        </button>
                       </div>
 
                     </div>
@@ -1716,15 +1749,15 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
                   <span className="text-[9px] uppercase font-mono tracking-widest bg-[#C49A6C] text-white px-2.5 py-0.5 rounded-full font-bold">
                     ☕ LEISURELY LOBBY CASHIER
                   </span>
-                  <h3 className="text-base font-bold text-[#5C3A21] font-serif">悠然大堂收银结算台</h3>
-                  <p className="text-[10px] text-stone-400 font-sans">请确认规格、配送形式并选择您的结算卡道</p>
+                  <h3 className="text-base font-bold text-[#5C3A21] font-serif">本次订单</h3>
+                  <p className="text-[10px] text-stone-400 font-sans">从左侧收藏中选择本次要购买的配方</p>
                 </div>
 
                 {/* Pricing summary */}
                 <div className="space-y-2.5 text-xs text-stone-600 bg-white p-4 rounded-2xl border border-[#A88C74]/10 shadow-xs">
                   <div className="flex justify-between items-center">
                     <span className="text-stone-400">商品件数 (Total Items):</span>
-                    <span className="font-mono font-bold text-[#5C3A21]">{wishlist.length} 杯/件</span>
+                    <span className="font-mono font-bold text-[#5C3A21]">{selectedWishlist.length} 杯/件</span>
                   </div>
                   <div className="flex justify-between items-center">
                     <span className="text-stone-400">定制调配费 (Extras):</span>
@@ -1835,7 +1868,7 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
                   <button
                     type="button"
                     onClick={handleCheckout}
-                    disabled={checkoutLoading}
+                    disabled={checkoutLoading || selectedWishlist.length === 0}
                     className="w-full py-3.5 bg-[#5C3A21] hover:bg-amber-950 text-[#FAF9F5] font-black text-xs rounded-2xl shadow-md hover:shadow-lg transition duration-250 border-none cursor-pointer flex items-center justify-center gap-2 active:scale-98 disabled:opacity-50"
                   >
                     {checkoutLoading ? (
@@ -1848,7 +1881,7 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
                       </span>
                     ) : (
                       <span className="flex items-center gap-2">
-                        <span>💳 确认支付并投递订单 (¥{totalWishlistPrice})</span>
+                        <span>{selectedWishlist.length === 0 ? '请先选择本次饮品' : `确认支付并提交订单 (¥${totalWishlistPrice})`}</span>
                       </span>
                     )}
                   </button>

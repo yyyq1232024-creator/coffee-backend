@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { User, Mail, FileText, Calendar, Edit2, CheckCircle2, AlertCircle, ShieldAlert } from 'lucide-react';
+import { User, Mail, FileText, Calendar, Edit2, CheckCircle2, AlertCircle, ShieldAlert, Camera, Trash2 } from 'lucide-react';
 import { User as UserType } from '../types';
 
 interface UserProfileProps {
@@ -12,11 +12,46 @@ export default function UserProfile({ user, token, onUpdateSuccess }: UserProfil
   const [name, setName] = useState(user.name);
   const [email, setEmail] = useState(user.email);
   const [bio, setBio] = useState(user.bio || '');
+  const [avatar, setAvatar] = useState(user.avatar || '');
   
   const [editing, setEditing] = useState(false);
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const handleAvatarChange = (file?: File) => {
+    if (!file) return;
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      setError('请选择 JPG、PNG 或 WebP 图片');
+      return;
+    }
+    if (file.size > 8 * 1024 * 1024) {
+      setError('原图不能超过 8MB');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const image = new Image();
+      image.onload = () => {
+        const size = 256;
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+        const context = canvas.getContext('2d');
+        if (!context) return;
+        const sourceSize = Math.min(image.width, image.height);
+        const sourceX = (image.width - sourceSize) / 2;
+        const sourceY = (image.height - sourceSize) / 2;
+        context.drawImage(image, sourceX, sourceY, sourceSize, sourceSize, 0, 0, size, size);
+        setAvatar(canvas.toDataURL('image/webp', 0.82));
+        setError(null);
+      };
+      image.onerror = () => setError('图片读取失败，请重新选择');
+      image.src = String(reader.result);
+    };
+    reader.readAsDataURL(file);
+  };
 
   const handleUpdateProfile = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -40,6 +75,7 @@ export default function UserProfile({ user, token, onUpdateSuccess }: UserProfil
           name: name.trim(),
           email: email.trim(),
           bio: bio.trim(),
+          avatar,
         }),
       });
 
@@ -64,8 +100,8 @@ export default function UserProfile({ user, token, onUpdateSuccess }: UserProfil
       {/* Box A - Left Dashboard Info (Static display) */}
       <div className="lg:col-span-5 bg-white border border-slate-100 rounded-3xl shadow-xl shadow-slate-100/40 p-6 md:p-8">
         <div className="flex flex-col items-center">
-          <div className="w-24 h-24 bg-gradient-to-tr from-amber-600 to-amber-800 text-white rounded-full flex items-center justify-center text-4xl font-extrabold shadow-md mb-5 leading-none">
-            {user.name.charAt(0).toUpperCase()}
+          <div className="w-24 h-24 bg-gradient-to-tr from-amber-600 to-amber-800 text-white rounded-full flex items-center justify-center text-4xl font-extrabold shadow-md mb-5 leading-none overflow-hidden">
+            {user.avatar ? <img src={user.avatar} alt={`${user.name}的头像`} className="w-full h-full object-cover" /> : user.name.charAt(0).toUpperCase()}
           </div>
           
           <h3 className="text-xl font-bold text-slate-800">{user.name}</h3>
@@ -150,6 +186,26 @@ export default function UserProfile({ user, token, onUpdateSuccess }: UserProfil
         {editing ? (
           <form onSubmit={handleUpdateProfile} className="space-y-5">
             <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">个人头像 / Avatar</label>
+              <div className="flex items-center gap-4 rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+                <div className="h-16 w-16 shrink-0 overflow-hidden rounded-full bg-gradient-to-tr from-amber-600 to-amber-800 text-white flex items-center justify-center text-2xl font-bold">
+                  {avatar ? <img src={avatar} alt="头像预览" className="h-full w-full object-cover" /> : name.charAt(0).toUpperCase()}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-xl bg-white px-3.5 py-2 text-xs font-bold text-amber-800 shadow-sm ring-1 ring-slate-200 hover:bg-amber-50">
+                    <Camera className="h-3.5 w-3.5" />选择照片
+                    <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={(event) => handleAvatarChange(event.target.files?.[0])} disabled={loading} />
+                  </label>
+                  {avatar && (
+                    <button type="button" onClick={() => setAvatar('')} className="inline-flex items-center gap-1.5 rounded-xl border-0 bg-rose-50 px-3.5 py-2 text-xs font-bold text-rose-700 cursor-pointer hover:bg-rose-100">
+                      <Trash2 className="h-3.5 w-3.5" />移除
+                    </button>
+                  )}
+                  <p className="w-full text-[10px] text-slate-400">图片会自动裁成方形并压缩，不会上传原始大图。</p>
+                </div>
+              </div>
+            </div>
+            <div>
               <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1.5">昵称 / Display Name</label>
               <div className="relative">
                 <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
@@ -207,6 +263,7 @@ export default function UserProfile({ user, token, onUpdateSuccess }: UserProfil
                   setName(user.name);
                   setEmail(user.email);
                   setBio(user.bio || '');
+                  setAvatar(user.avatar || '');
                   setEditing(false);
                   setError(null);
                 }}

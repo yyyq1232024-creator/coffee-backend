@@ -13,6 +13,7 @@ interface CoffeeHomeProps {
   onNavigateToLogin: () => void;
   onNavigateToRegister: () => void;
   onNavigateToAdmin?: () => void;
+  onNavigateToProfile?: () => void;
   onLogout?: () => void;
 }
 
@@ -167,6 +168,7 @@ export default function CoffeeHome({
   onNavigateToLogin,
   onNavigateToRegister,
   onNavigateToAdmin,
+  onNavigateToProfile,
   onLogout,
 }: CoffeeHomeProps) {
   const [activeSlide, setActiveSlide] = useState(0);
@@ -318,10 +320,11 @@ export default function CoffeeHome({
                     </button>
                   )}
                   <button
-                    onClick={() => onNavigate('wishlist')}
+                    onClick={onNavigateToProfile}
                     className="flex items-center gap-2 rounded-full border border-white/35 bg-black/10 px-3 py-2 text-[9px] font-semibold tracking-wider text-white backdrop-blur-md transition hover:bg-white hover:text-[#23130b] sm:px-4"
+                    title="进入个人中心"
                   >
-                    <UserRound className="h-3.5 w-3.5" />
+                    {user.avatar ? <img src={user.avatar} alt="" className="h-4 w-4 rounded-full object-cover" /> : <UserRound className="h-3.5 w-3.5" />}
                     <span className="hidden sm:inline">{user.name}</span>
                   </button>
                   <button
@@ -358,7 +361,7 @@ export default function CoffeeHome({
                 {[
                   ['menu', '菜单'],
                   ['builder', '私人特调'],
-                  ['wishlist', '心愿单'],
+                  ['wishlist', '收藏配方'],
                   ['printer', '吧台出单'],
                   ['about', '品牌故事'],
                   ['contact', '联系门店'],
@@ -379,6 +382,15 @@ export default function CoffeeHome({
                     className="col-span-2 flex items-center justify-center gap-2 rounded-xl bg-white px-4 py-3 text-xs font-semibold text-[#23130b]"
                   >
                     <LayoutDashboard className="h-4 w-4" />进入管理后台
+                  </button>
+                )}
+                {user && (
+                  <button
+                    type="button"
+                    onClick={() => { setMobileMenuOpen(false); onNavigateToProfile?.(); }}
+                    className="col-span-2 flex items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/[0.06] px-4 py-3 text-xs font-semibold text-white"
+                  >
+                    <UserRound className="h-4 w-4" />个人中心与资料
                   </button>
                 )}
                 {!user && (

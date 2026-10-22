@@ -1,14 +1,38 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, CalendarDays, CheckCircle2, Coffee, Database, Droplets, Flame, Leaf, MapPin, Mountain, Orbit, Route, Sprout, ThermometerSun } from 'lucide-react';
+import { ArrowLeft, CalendarDays, CheckCircle2, Coffee, Database, Droplets, Flame, Leaf, MapPin, Mountain, Orbit, Route, Sprout, ThermometerSun, X } from 'lucide-react';
 import { BeanBatch, MenuProduct } from '../types';
 import OriginGlobe from './OriginGlobe';
 
 type OriginEntry = { product: MenuProduct; batch: BeanBatch };
 
-export default function BeanOriginPage() {
+interface BeanOriginPageProps {
+  initialBatchId?: string;
+  embedded?: boolean;
+  onClose?: () => void;
+}
+
+export default function BeanOriginPage({ initialBatchId = '', embedded = false, onClose }: BeanOriginPageProps) {
   const [entries, setEntries] = useState<OriginEntry[]>([]);
-  const [selectedId, setSelectedId] = useState(() => decodeURIComponent(window.location.pathname.split('/')[2] || ''));
+  const [selectedId, setSelectedId] = useState(initialBatchId);
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (initialBatchId) setSelectedId(initialBatchId);
+  }, [initialBatchId]);
+
+  useEffect(() => {
+    if (!embedded) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose?.();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [embedded, onClose]);
 
   useEffect(() => {
     fetch('/api/products')
@@ -34,30 +58,29 @@ export default function BeanOriginPage() {
 
   const selectEntry = (entry: OriginEntry) => {
     setSelectedId(entry.batch.id);
-    window.history.replaceState({}, '', `/origin/${encodeURIComponent(entry.batch.id)}`);
   };
 
   const goBack = () => {
-    if (window.opener) window.close();
+    if (onClose) onClose();
     else window.location.href = '/';
   };
 
   if (loading) {
-    return <div className="min-h-screen bg-[#0E1110] text-stone-300 flex items-center justify-center text-sm tracking-widest">LOADING ORIGIN ARCHIVE…</div>;
+    return <div className={`${embedded ? 'h-full' : 'min-h-screen'} bg-[#0E1110] text-stone-300 flex items-center justify-center text-sm tracking-widest`}>LOADING ORIGIN ARCHIVE…</div>;
   }
   if (!activeEntry) {
-    return <div className="min-h-screen bg-[#0E1110] text-white flex items-center justify-center">暂时没有可查看的豆源批次。</div>;
+    return <div className={`${embedded ? 'h-full' : 'min-h-screen'} bg-[#0E1110] text-white flex items-center justify-center`}>暂时没有可查看的豆源批次。</div>;
   }
 
   const active = activeEntry.batch;
 
   return (
-    <main className="min-h-screen bg-[#0E1110] text-[#F5EFE4] overflow-hidden selection:bg-amber-200 selection:text-stone-900">
+    <main className={`${embedded ? 'min-h-full' : 'min-h-screen'} bg-[#0E1110] text-[#F5EFE4] overflow-hidden selection:bg-amber-200 selection:text-stone-900`}>
       <div className="fixed inset-0 pointer-events-none opacity-30 bg-[radial-gradient(circle_at_18%_15%,rgba(173,123,65,0.32),transparent_32%),radial-gradient(circle_at_85%_70%,rgba(51,91,70,0.34),transparent_30%)]" />
 
       <header className="relative z-20 max-w-7xl mx-auto px-5 sm:px-8 py-6 flex items-center justify-between border-b border-white/10">
         <button onClick={goBack} className="inline-flex items-center gap-2 text-xs tracking-widest text-white/65 hover:text-white transition bg-transparent border-none cursor-pointer">
-          <ArrowLeft className="w-4 h-4" /> 返回悠然咖啡
+          {embedded ? <X className="w-4 h-4" /> : <ArrowLeft className="w-4 h-4" />} {embedded ? '关闭豆源档案' : '返回悠然咖啡'}
         </button>
         <div className="text-right">
           <p className="text-[10px] tracking-[0.32em] text-[#D1AE79] uppercase">Yuran Origin Archive</p>

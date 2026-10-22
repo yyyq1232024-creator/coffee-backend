@@ -36,7 +36,7 @@ import {
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
 
-app.use(express.json());
+app.use(express.json({ limit: "1mb" }));
 
 // ==================== Shared Server Print Queue Models ====================
 // PrintJob interface is imported from types.ts. Print queue is now persisted in the JSON database.
@@ -254,7 +254,7 @@ app.get("/api/auth/me", authMiddleware, (req: AuthenticatedRequest, res) => {
 
 // Update current user profile
 app.put("/api/auth/profile", authMiddleware, async (req: AuthenticatedRequest, res) => {
-  const { name, email, bio } = req.body;
+  const { name, email, bio, avatar } = req.body;
   if (!name || !email) {
     res.status(400).json({ success: false, error: "名字/昵称与电子邮箱不可为空" });
     return;
@@ -273,7 +273,16 @@ app.put("/api/auth/profile", authMiddleware, async (req: AuthenticatedRequest, r
       return;
     }
 
-    await updateUser(req.user.id, { name, email, bio: bio || "" });
+    const normalizedAvatar = typeof avatar === "string" ? avatar.trim() : "";
+    if (
+      normalizedAvatar &&
+      (!/^data:image\/(?:jpeg|png|webp);base64,/i.test(normalizedAvatar) || normalizedAvatar.length > 350_000)
+    ) {
+      res.status(400).json({ success: false, error: "头像格式不受支持或文件过大，请重新选择图片" });
+      return;
+    }
+
+    await updateUser(req.user.id, { name, email, bio: bio || "", avatar: normalizedAvatar });
     const freshUser = await getUserById(req.user.id);
 
     res.json({

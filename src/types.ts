@@ -9,6 +9,7 @@ export interface User {
   role: UserRole;
   status: UserStatus;
   bio?: string;
+  avatar?: string;
   createdAt: string;
 }
 
