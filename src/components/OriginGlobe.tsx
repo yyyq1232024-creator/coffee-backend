@@ -1,4 +1,7 @@
 import React, { useEffect, useRef } from 'react';
+import { geoGraticule10, geoOrthographic, geoPath } from 'd3-geo';
+import { feature, mesh } from 'topojson-client';
+import worldAtlas from 'world-atlas/countries-50m.json';
 import { BeanBatch } from '../types';
 
 type GlobeEntry = { id: string; batch: BeanBatch };
@@ -16,16 +19,11 @@ type Transition = {
 };
 
 const DEG = Math.PI / 180;
-
-const CONTINENTS: Array<Array<[number, number]>> = [
-  [[-168, 68], [-150, 58], [-132, 55], [-124, 44], [-118, 32], [-103, 19], [-88, 18], [-81, 25], [-65, 44], [-54, 52], [-72, 60], [-97, 70], [-130, 72]],
-  [[-81, 12], [-70, 7], [-52, 4], [-35, -8], [-46, -25], [-57, -40], [-70, -55], [-76, -30]],
-  [[-18, 35], [-5, 48], [16, 58], [38, 55], [48, 43], [34, 32], [43, 12], [33, -6], [19, -35], [5, -34], [-8, -12]],
-  [[-10, 36], [-8, 51], [6, 59], [25, 70], [60, 72], [95, 75], [140, 62], [165, 54], [145, 38], [118, 22], [105, 6], [82, 10], [68, 24], [45, 32], [28, 39]],
-  [[112, -12], [132, -10], [151, -24], [146, -39], [122, -35], [113, -24]],
-  [[-52, 60], [-42, 70], [-28, 76], [-40, 83], [-62, 78], [-72, 67]],
-  [[43, -13], [50, -16], [49, -26], [45, -24]],
-];
+const WORLD = worldAtlas as any;
+const LAND = feature(WORLD, WORLD.objects.land) as any;
+const COUNTRY_BORDERS = mesh(WORLD, WORLD.objects.countries, (a, b) => a !== b) as any;
+const GRATICULE = geoGraticule10();
+const SPHERE = { type: 'Sphere' } as const;
 
 function normalizeLongitude(value: number) {
   return ((value + 540) % 360) - 180;
@@ -86,25 +84,133 @@ function project(point: View, camera: View, centerX: number, centerY: number, ra
   };
 }
 
-function drawGeoLine(
+function createProjection(camera: View, centerX: number, centerY: number, radius: number) {
+  return geoOrthographic()
+    .translate([centerX, centerY])
+    .scale(radius)
+    .rotate([-camera.longitude, -camera.latitude, 0])
+    .clipAngle(90)
+    .precision(0.2);
+}
+
+function drawGlobeBase(
   context: CanvasRenderingContext2D,
-  points: View[],
   camera: View,
   centerX: number,
   centerY: number,
-  radius: number
+  radius: number,
 ) {
-  let drawing = false;
-  for (const point of points) {
-    const projected = project(point, camera, centerX, centerY, radius);
-    if (projected.depth <= 0.015) {
-      drawing = false;
-      continue;
-    }
-    if (!drawing) context.moveTo(projected.x, projected.y);
-    else context.lineTo(projected.x, projected.y);
-    drawing = true;
-  }
+  const projection = createProjection(camera, centerX, centerY, radius);
+  const path = geoPath(projection, context);
+
+  const outerGlow = context.createRadialGradient(centerX, centerY, radius * 0.72, centerX, centerY, radius * 1.34);
+  outerGlow.addColorStop(0, 'rgba(43, 133, 103, 0.18)');
+  outerGlow.addColorStop(0.68, 'rgba(209, 174, 121, 0.09)');
+  outerGlow.addColorStop(1, 'rgba(4, 10, 8, 0)');
+  context.fillStyle = outerGlow;
+  context.beginPath();
+  context.arc(centerX, centerY, radius * 1.34, 0, Math.PI * 2);
+  context.fill();
+
+  context.save();
+  context.beginPath();
+  path(SPHERE);
+  context.clip();
+
+  const ocean = context.createRadialGradient(
+    centerX - radius * 0.36,
+    centerY - radius * 0.42,
+    radius * 0.08,
+    centerX,
+    centerY,
+    radius * 1.12,
+  );
+  ocean.addColorStop(0, '#285d54');
+  ocean.addColorStop(0.38, '#123c37');
+  ocean.addColorStop(0.74, '#082522');
+  ocean.addColorStop(1, '#020a09');
+  context.fillStyle = ocean;
+  context.beginPath();
+  path(SPHERE);
+  context.fill();
+
+  context.strokeStyle = 'rgba(176, 222, 205, 0.12)';
+  context.lineWidth = 0.55;
+  context.beginPath();
+  path(GRATICULE);
+  context.stroke();
+
+  const land = context.createLinearGradient(
+    centerX - radius * 0.78,
+    centerY - radius,
+    centerX + radius * 0.92,
+    centerY + radius,
+  );
+  land.addColorStop(0, '#8baa83');
+  land.addColorStop(0.42, '#668c6f');
+  land.addColorStop(1, '#315a4a');
+  context.fillStyle = land;
+  context.shadowColor = 'rgba(1, 11, 8, 0.72)';
+  context.shadowBlur = 9;
+  context.shadowOffsetX = 2;
+  context.shadowOffsetY = 4;
+  context.beginPath();
+  path(LAND);
+  context.fill();
+  context.shadowColor = 'transparent';
+  context.shadowBlur = 0;
+  context.shadowOffsetX = 0;
+  context.shadowOffsetY = 0;
+
+  context.strokeStyle = 'rgba(236, 226, 195, 0.5)';
+  context.lineWidth = 0.75;
+  context.beginPath();
+  path(LAND);
+  context.stroke();
+
+  context.strokeStyle = 'rgba(229, 235, 209, 0.2)';
+  context.lineWidth = 0.42;
+  context.beginPath();
+  path(COUNTRY_BORDERS);
+  context.stroke();
+
+  const highlight = context.createRadialGradient(
+    centerX - radius * 0.42,
+    centerY - radius * 0.48,
+    0,
+    centerX - radius * 0.3,
+    centerY - radius * 0.36,
+    radius * 1.16,
+  );
+  highlight.addColorStop(0, 'rgba(237, 255, 245, 0.16)');
+  highlight.addColorStop(0.44, 'rgba(134, 203, 178, 0.035)');
+  highlight.addColorStop(1, 'rgba(0, 0, 0, 0.62)');
+  context.fillStyle = highlight;
+  context.beginPath();
+  path(SPHERE);
+  context.fill();
+  context.restore();
+
+  context.strokeStyle = 'rgba(225, 198, 152, 0.52)';
+  context.lineWidth = 1;
+  context.beginPath();
+  context.arc(centerX, centerY, radius + 0.5, 0, Math.PI * 2);
+  context.stroke();
+
+  context.strokeStyle = 'rgba(216, 186, 138, 0.12)';
+  context.beginPath();
+  context.ellipse(centerX, centerY, radius * 1.18, radius * 0.36, -0.24, 0, Math.PI * 2);
+  context.stroke();
+
+  const atmosphere = context.createLinearGradient(0, centerY - radius, 0, centerY + radius);
+  atmosphere.addColorStop(0, 'rgba(223, 245, 233, 0.36)');
+  atmosphere.addColorStop(0.55, 'rgba(182, 222, 199, 0.06)');
+  atmosphere.addColorStop(1, 'rgba(226, 185, 125, 0.15)');
+  context.strokeStyle = atmosphere;
+  context.lineWidth = 2.2;
+  context.beginPath();
+  context.arc(centerX, centerY, radius + 2, 0, Math.PI * 2);
+  context.stroke();
 }
 
 interface OriginGlobeProps {
@@ -148,9 +254,12 @@ export default function OriginGlobe({ entries, active, onSelect }: OriginGlobePr
     const context = canvas.getContext('2d');
     if (!context) return;
 
+    let baseCanvas: HTMLCanvasElement | null = null;
+    let baseCacheKey = '';
+
     const draw = (timestamp: number) => {
       const bounds = canvas.getBoundingClientRect();
-      const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+      const pixelRatio = Math.min(window.devicePixelRatio || 1, 2.5);
       const width = Math.max(320, bounds.width);
       const height = Math.max(320, bounds.height);
       if (canvas.width !== Math.round(width * pixelRatio) || canvas.height !== Math.round(height * pixelRatio)) {
@@ -179,78 +288,40 @@ export default function OriginGlobe({ entries, active, onSelect }: OriginGlobePr
       }
       const camera = viewRef.current;
 
-      const outerGlow = context.createRadialGradient(centerX, centerY, radius * 0.72, centerX, centerY, radius * 1.34);
-      outerGlow.addColorStop(0, 'rgba(43, 133, 103, 0.16)');
-      outerGlow.addColorStop(0.65, 'rgba(209, 174, 121, 0.08)');
-      outerGlow.addColorStop(1, 'rgba(4, 10, 8, 0)');
-      context.fillStyle = outerGlow;
-      context.beginPath();
-      context.arc(centerX, centerY, radius * 1.34, 0, Math.PI * 2);
-      context.fill();
+      const baseKey = [canvas.width, canvas.height, camera.latitude.toFixed(4), camera.longitude.toFixed(4)].join(':');
+      if (!baseCanvas || baseCacheKey !== baseKey) {
+        baseCanvas = document.createElement('canvas');
+        baseCanvas.width = canvas.width;
+        baseCanvas.height = canvas.height;
+        const baseContext = baseCanvas.getContext('2d');
+        if (baseContext) {
+          baseContext.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+          drawGlobeBase(baseContext, camera, centerX, centerY, radius);
+          baseCacheKey = baseKey;
+        }
+      }
+      if (baseCanvas) context.drawImage(baseCanvas, 0, 0, width, height);
+
+      const projection = createProjection(camera, centerX, centerY, radius);
+      const path = geoPath(projection, context);
 
       context.save();
       context.beginPath();
       context.arc(centerX, centerY, radius, 0, Math.PI * 2);
       context.clip();
 
-      const ocean = context.createRadialGradient(centerX - radius * 0.36, centerY - radius * 0.42, radius * 0.08, centerX, centerY, radius * 1.1);
-      ocean.addColorStop(0, '#214f48');
-      ocean.addColorStop(0.46, '#0c2d2a');
-      ocean.addColorStop(0.78, '#071b1b');
-      ocean.addColorStop(1, '#020808');
-      context.fillStyle = ocean;
-      context.fillRect(centerX - radius, centerY - radius, radius * 2, radius * 2);
-
-      context.lineWidth = 0.7;
-      context.strokeStyle = 'rgba(170, 215, 199, 0.14)';
-      for (let latitude = -60; latitude <= 60; latitude += 20) {
-        const points: View[] = [];
-        for (let longitude = -180; longitude <= 180; longitude += 3) points.push({ latitude, longitude });
-        context.beginPath();
-        drawGeoLine(context, points, camera, centerX, centerY, radius);
-        context.stroke();
-      }
-      for (let longitude = -180; longitude < 180; longitude += 20) {
-        const points: View[] = [];
-        for (let latitude = -89; latitude <= 89; latitude += 3) points.push({ latitude, longitude });
-        context.beginPath();
-        drawGeoLine(context, points, camera, centerX, centerY, radius);
-        context.stroke();
-      }
-
-      for (const polygon of CONTINENTS) {
-        const visiblePoints = polygon
-          .map(([longitude, latitude]) => project({ latitude, longitude }, camera, centerX, centerY, radius))
-          .filter((point) => point.depth > -0.05);
-        if (visiblePoints.length < 3) continue;
-        context.beginPath();
-        visiblePoints.forEach((point, index) => index === 0 ? context.moveTo(point.x, point.y) : context.lineTo(point.x, point.y));
-        context.closePath();
-        const land = context.createLinearGradient(centerX - radius, centerY - radius, centerX + radius, centerY + radius);
-        land.addColorStop(0, 'rgba(103, 151, 122, 0.82)');
-        land.addColorStop(1, 'rgba(45, 87, 68, 0.72)');
-        context.fillStyle = land;
-        context.strokeStyle = 'rgba(210, 223, 194, 0.32)';
-        context.lineWidth = 0.8;
-        context.fill();
-        context.stroke();
-      }
-
-      const shade = context.createLinearGradient(centerX - radius, centerY, centerX + radius, centerY);
-      shade.addColorStop(0, 'rgba(222, 247, 232, 0.09)');
-      shade.addColorStop(0.46, 'rgba(0, 0, 0, 0)');
-      shade.addColorStop(1, 'rgba(0, 0, 0, 0.62)');
-      context.fillStyle = shade;
-      context.fillRect(centerX - radius, centerY - radius, radius * 2, radius * 2);
-
       if (transition && transitionProgress < 1) {
-        context.beginPath();
         const routePoints: View[] = [];
         for (let index = 0; index <= 72; index += 1) routePoints.push(greatCirclePoint(transition.fromOrigin, transition.toOrigin, index / 72));
-        drawGeoLine(context, routePoints, camera, centerX, centerY, radius);
+        const route = {
+          type: 'LineString',
+          coordinates: routePoints.map((point) => [point.longitude, point.latitude]),
+        } as const;
         context.strokeStyle = `rgba(237, 190, 116, ${0.35 + Math.sin(transitionProgress * Math.PI) * 0.45})`;
         context.lineWidth = 1.8;
         context.setLineDash([4, 7]);
+        context.beginPath();
+        path(route as any);
         context.stroke();
         context.setLineDash([]);
 
@@ -289,16 +360,6 @@ export default function OriginGlobe({ entries, active, onSelect }: OriginGlobePr
       }
       markerHitsRef.current = markerHits;
       context.restore();
-
-      context.strokeStyle = 'rgba(216, 186, 138, 0.44)';
-      context.lineWidth = 1;
-      context.beginPath();
-      context.arc(centerX, centerY, radius + 0.5, 0, Math.PI * 2);
-      context.stroke();
-      context.strokeStyle = 'rgba(216, 186, 138, 0.12)';
-      context.beginPath();
-      context.ellipse(centerX, centerY, radius * 1.18, radius * 0.36, -0.24, 0, Math.PI * 2);
-      context.stroke();
 
       frameRef.current = requestAnimationFrame(draw);
     };
