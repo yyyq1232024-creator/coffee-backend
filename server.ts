@@ -6,7 +6,7 @@ import path from "path";
 import crypto from "crypto";
 import { User, UserRole, UserStatus, Order, PrintJob, WishlistItem } from "./src/types.ts";
 import {
-  initSqliteDb,
+  initDatabase,
   getAllUsers,
   getRawUsers,
   getUserById,
@@ -39,7 +39,7 @@ const PORT = Number(process.env.PORT) || 3000;
 app.use(express.json({ limit: "1mb" }));
 
 // ==================== Shared Server Print Queue Models ====================
-// PrintJob interface is imported from types.ts. Print queue is now persisted in the JSON database.
+// PrintJob interface is imported from types.ts. The queue is persisted in PostgreSQL.
 
 // Simple custom interface extending express Request for typing req.user
 interface AuthenticatedRequest extends express.Request {
@@ -907,12 +907,8 @@ app.post("/api/print/clear", authMiddleware, adminMiddleware, async (req, res) =
 // ==================== Dev Setup & Asset Hosting ====================
 
 async function startServer() {
-  // Initialize relational tables or local JSON database
-  try {
-    await initSqliteDb();
-  } catch (error) {
-    console.error("❌ Failed to initialize Database:", error);
-  }
+  // The application is SQL-only: startup must stop if the database is unavailable.
+  await initDatabase();
 
   // Vite dev server mounting in non-production mode
   const isProd = process.env.NODE_ENV === "production" || (typeof __filename !== "undefined" && (__filename.endsWith(".cjs") || __filename.includes("dist")));
@@ -945,4 +941,7 @@ async function startServer() {
   });
 }
 
-startServer();
+startServer().catch((error) => {
+  console.error("❌ Failed to start because the SQL database is unavailable:", error);
+  process.exitCode = 1;
+});
