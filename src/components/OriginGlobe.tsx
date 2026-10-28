@@ -1,13 +1,15 @@
 import React, { useEffect, useRef } from 'react';
 import { geoGraticule10, geoOrthographic, geoPath } from 'd3-geo';
 import { feature, mesh } from 'topojson-client';
-import worldAtlas from 'world-atlas/countries-50m.json';
+import detailedWorldAtlas from 'world-atlas/countries-50m.json';
+import motionWorldAtlas from 'world-atlas/countries-110m.json';
 import { BeanBatch } from '../types';
 
 type GlobeEntry = { id: string; batch: BeanBatch };
 
 type View = { latitude: number; longitude: number };
 type ProjectedPoint = { x: number; y: number; depth: number };
+type GlobeGeometry = { land: any; countryBorders: any };
 
 type Transition = {
   startedAt: number;
@@ -19,9 +21,12 @@ type Transition = {
 };
 
 const DEG = Math.PI / 180;
-const WORLD = worldAtlas as any;
-const LAND = feature(WORLD, WORLD.objects.land) as any;
-const COUNTRY_BORDERS = mesh(WORLD, WORLD.objects.countries, (a, b) => a !== b) as any;
+const buildGeometry = (atlas: any): GlobeGeometry => ({
+  land: feature(atlas, atlas.objects.land) as any,
+  countryBorders: mesh(atlas, atlas.objects.countries, (a, b) => a !== b) as any,
+});
+const DETAILED_GEOMETRY = buildGeometry(detailedWorldAtlas as any);
+const MOTION_GEOMETRY = buildGeometry(motionWorldAtlas as any);
 const GRATICULE = geoGraticule10();
 const SPHERE = { type: 'Sphere' } as const;
 
@@ -33,8 +38,8 @@ function shortestLongitudeTarget(from: number, to: number) {
   return from + normalizeLongitude(to - from);
 }
 
-function easeInOutCubic(value: number) {
-  return value < 0.5 ? 4 * value * value * value : 1 - Math.pow(-2 * value + 2, 3) / 2;
+function easeInOutSine(value: number) {
+  return -(Math.cos(Math.PI * value) - 1) / 2;
 }
 
 function toVector(point: View): [number, number, number] {
@@ -84,13 +89,13 @@ function project(point: View, camera: View, centerX: number, centerY: number, ra
   };
 }
 
-function createProjection(camera: View, centerX: number, centerY: number, radius: number) {
+function createProjection(camera: View, centerX: number, centerY: number, radius: number, precision = 0.2) {
   return geoOrthographic()
     .translate([centerX, centerY])
     .scale(radius)
     .rotate([-camera.longitude, -camera.latitude, 0])
     .clipAngle(90)
-    .precision(0.2);
+    .precision(precision);
 }
 
 function drawGlobeBase(
@@ -99,8 +104,10 @@ function drawGlobeBase(
   centerX: number,
   centerY: number,
   radius: number,
+  geometry: GlobeGeometry,
+  precision: number,
 ) {
-  const projection = createProjection(camera, centerX, centerY, radius);
+  const projection = createProjection(camera, centerX, centerY, radius, precision);
   const path = geoPath(projection, context);
 
   const outerGlow = context.createRadialGradient(centerX, centerY, radius * 0.72, centerX, centerY, radius * 1.34);
@@ -155,7 +162,7 @@ function drawGlobeBase(
   context.shadowOffsetX = 2;
   context.shadowOffsetY = 4;
   context.beginPath();
-  path(LAND);
+  path(geometry.land);
   context.fill();
   context.shadowColor = 'transparent';
   context.shadowBlur = 0;
@@ -165,13 +172,13 @@ function drawGlobeBase(
   context.strokeStyle = 'rgba(236, 226, 195, 0.5)';
   context.lineWidth = 0.75;
   context.beginPath();
-  path(LAND);
+  path(geometry.land);
   context.stroke();
 
   context.strokeStyle = 'rgba(229, 235, 209, 0.2)';
   context.lineWidth = 0.42;
   context.beginPath();
-  path(COUNTRY_BORDERS);
+  path(geometry.countryBorders);
   context.stroke();
 
   const highlight = context.createRadialGradient(
@@ -235,7 +242,7 @@ export default function OriginGlobe({ entries, active, onSelect }: OriginGlobePr
       const fromView = viewRef.current;
       transitionRef.current = {
         startedAt: performance.now(),
-        duration: 1250,
+        duration: 1450,
         fromView,
         toView: {
           latitude: active.latitude,
@@ -254,7 +261,8 @@ export default function OriginGlobe({ entries, active, onSelect }: OriginGlobePr
     const context = canvas.getContext('2d');
     if (!context) return;
 
-    let baseCanvas: HTMLCanvasElement | null = null;
+    const baseCanvas = document.createElement('canvas');
+    const baseContext = baseCanvas.getContext('2d');
     let baseCacheKey = '';
 
     const draw = (timestamp: number) => {
@@ -276,7 +284,7 @@ export default function OriginGlobe({ entries, active, onSelect }: OriginGlobePr
       let transitionProgress = 1;
       if (transition) {
         transitionProgress = Math.min(1, (timestamp - transition.startedAt) / transition.duration);
-        const eased = easeInOutCubic(transitionProgress);
+        const eased = easeInOutSine(transitionProgress);
         viewRef.current = {
           latitude: transition.fromView.latitude + (transition.toView.latitude - transition.fromView.latitude) * eased,
           longitude: transition.fromView.longitude + (transition.toView.longitude - transition.fromView.longitude) * eased,
@@ -287,20 +295,41 @@ export default function OriginGlobe({ entries, active, onSelect }: OriginGlobePr
         }
       }
       const camera = viewRef.current;
+      const isTransitioning = Boolean(transition && transitionProgress < 1);
+      const geometry = isTransitioning ? MOTION_GEOMETRY : DETAILED_GEOMETRY;
+      const basePixelRatio = isTransitioning ? Math.min(window.devicePixelRatio || 1, 1.35) : pixelRatio;
 
-      const baseKey = [canvas.width, canvas.height, camera.latitude.toFixed(4), camera.longitude.toFixed(4)].join(':');
-      if (!baseCanvas || baseCacheKey !== baseKey) {
-        baseCanvas = document.createElement('canvas');
-        baseCanvas.width = canvas.width;
-        baseCanvas.height = canvas.height;
-        const baseContext = baseCanvas.getContext('2d');
-        if (baseContext) {
-          baseContext.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
-          drawGlobeBase(baseContext, camera, centerX, centerY, radius);
-          baseCacheKey = baseKey;
+      const baseKey = [
+        width,
+        height,
+        basePixelRatio,
+        isTransitioning ? 'motion' : 'detail',
+        camera.latitude.toFixed(4),
+        camera.longitude.toFixed(4),
+      ].join(':');
+      if (baseContext && baseCacheKey !== baseKey) {
+        const nextBaseWidth = Math.round(width * basePixelRatio);
+        const nextBaseHeight = Math.round(height * basePixelRatio);
+        if (baseCanvas.width !== nextBaseWidth || baseCanvas.height !== nextBaseHeight) {
+          baseCanvas.width = nextBaseWidth;
+          baseCanvas.height = nextBaseHeight;
+        } else {
+          baseContext.setTransform(1, 0, 0, 1, 0, 0);
+          baseContext.clearRect(0, 0, baseCanvas.width, baseCanvas.height);
         }
+        baseContext.setTransform(basePixelRatio, 0, 0, basePixelRatio, 0, 0);
+        drawGlobeBase(
+          baseContext,
+          camera,
+          centerX,
+          centerY,
+          radius,
+          geometry,
+          isTransitioning ? 0.7 : 0.2,
+        );
+        baseCacheKey = baseKey;
       }
-      if (baseCanvas) context.drawImage(baseCanvas, 0, 0, width, height);
+      context.drawImage(baseCanvas, 0, 0, width, height);
 
       const projection = createProjection(camera, centerX, centerY, radius);
       const path = geoPath(projection, context);
@@ -325,7 +354,7 @@ export default function OriginGlobe({ entries, active, onSelect }: OriginGlobePr
         context.stroke();
         context.setLineDash([]);
 
-        const traveler = project(greatCirclePoint(transition.fromOrigin, transition.toOrigin, easeInOutCubic(transitionProgress)), camera, centerX, centerY, radius);
+        const traveler = project(greatCirclePoint(transition.fromOrigin, transition.toOrigin, easeInOutSine(transitionProgress)), camera, centerX, centerY, radius);
         if (traveler.depth > 0) {
           const travelGlow = context.createRadialGradient(traveler.x, traveler.y, 0, traveler.x, traveler.y, 18);
           travelGlow.addColorStop(0, 'rgba(255, 244, 218, 1)');
