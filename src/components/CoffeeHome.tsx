@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion, useScroll, useTransform } from 'motion/react';
-import { ArrowDown, ArrowRight, Coffee, LayoutDashboard, LogOut, Menu, UserRound, X } from 'lucide-react';
+import { ArrowDown, ArrowRight, BookOpen, Coffee, Home, LayoutDashboard, LogOut, Menu, MessageCircle, UserRound, X } from 'lucide-react';
 import { User as UserType } from '../types';
 import CoffeeCursor from './CoffeeCursor';
 import CoffeeParticles from './CoffeeParticles';
@@ -92,6 +92,29 @@ const HERO_SLIDES = [
   },
 ];
 
+const MOBILE_HERO_SLIDES = [
+  {
+    ...HERO_SLIDES[0],
+    mobileTitle: '把第一杯，留给清醒。',
+    mobileNote: 'PURE RITUAL',
+  },
+  {
+    ...HERO_SLIDES[1],
+    mobileTitle: '海浪，从来不赶时间。',
+    mobileNote: 'OCEAN RHYTHM',
+  },
+  {
+    ...HERO_SLIDES[2],
+    mobileTitle: '让湖面，替你慢下来。',
+    mobileNote: 'STILL WATERS',
+  },
+  {
+    ...HERO_SLIDES[3],
+    mobileTitle: '沿途，本来就是目的地。',
+    mobileNote: 'TAKE YOUR TIME',
+  },
+];
+
 const PHILOSOPHY_LINES = [
   '咖啡不是匆忙生活的燃料，',
   '而是一段值得被认真对待',
@@ -172,6 +195,10 @@ export default function CoffeeHome({
   onLogout,
 }: CoffeeHomeProps) {
   const [activeSlide, setActiveSlide] = useState(0);
+  const [activeMobileSlide, setActiveMobileSlide] = useState(0);
+  const [isMobileViewport, setIsMobileViewport] = useState(() => (
+    typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches
+  ));
   const [isScrolled, setIsScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const storyRef = useRef<HTMLDivElement>(null);
@@ -185,22 +212,38 @@ export default function CoffeeHome({
   const philosophyBackdropY = useTransform(philosophyProgress, [0, 1], [90, -90]);
 
   useEffect(() => {
-    const timer = window.setInterval(() => {
-      setActiveSlide((current) => (current + 1) % HERO_SLIDES.length);
-    }, 5000);
-    return () => window.clearInterval(timer);
+    const mediaQuery = window.matchMedia('(max-width: 767px)');
+    const updateViewport = () => setIsMobileViewport(mediaQuery.matches);
+    updateViewport();
+    mediaQuery.addEventListener('change', updateViewport);
+    return () => mediaQuery.removeEventListener('change', updateViewport);
   }, []);
 
   useEffect(() => {
-    HERO_SLIDES.forEach((slide) => {
+    const timer = window.setInterval(() => {
+      if (isMobileViewport) {
+        setActiveMobileSlide((current) => (current + 1) % MOBILE_HERO_SLIDES.length);
+      } else {
+        setActiveSlide((current) => (current + 1) % HERO_SLIDES.length);
+      }
+    }, 5000);
+    return () => window.clearInterval(timer);
+  }, [isMobileViewport]);
+
+  useEffect(() => {
+    const slides = window.matchMedia('(max-width: 767px)').matches ? MOBILE_HERO_SLIDES : HERO_SLIDES;
+    slides.forEach((slide) => {
       const image = new Image();
       image.src = slide.image;
     });
   }, []);
 
   useEffect(() => {
-    if (!window.matchMedia('(max-width: 1024px)').matches) return;
-    const nextSlide = HERO_SLIDES[(activeSlide + 1) % HERO_SLIDES.length];
+    const compactPlayback = window.matchMedia('(max-width: 1024px)').matches;
+    if (!compactPlayback) return;
+    const slides = isMobileViewport ? MOBILE_HERO_SLIDES : HERO_SLIDES;
+    const currentSlide = isMobileViewport ? activeMobileSlide : activeSlide;
+    const nextSlide = slides[(currentSlide + 1) % slides.length];
     const preloadVideo = document.createElement('video');
     preloadVideo.preload = 'auto';
     preloadVideo.muted = true;
@@ -213,7 +256,7 @@ export default function CoffeeHome({
       preloadVideo.load();
       if (nextVideoPreloadRef.current === preloadVideo) nextVideoPreloadRef.current = null;
     };
-  }, [activeSlide]);
+  }, [activeSlide, activeMobileSlide, isMobileViewport]);
 
   useEffect(() => {
     const updateNavigation = () => setIsScrolled(window.scrollY > 48);
@@ -234,10 +277,189 @@ export default function CoffeeHome({
     event.currentTarget.style.setProperty('--philosophy-y', `${y}%`);
   };
 
+  const mobileSlide = MOBILE_HERO_SLIDES[activeMobileSlide];
+  const openCoffeeAssistant = () => window.dispatchEvent(new Event('coffee-assistant:open'));
+  const openMemberArea = () => (user ? onNavigateToProfile?.() : onNavigateToLogin());
+
   return (
     <div className="coffee-home bg-[#100a07] text-white overflow-clip">
       <CoffeeCursor />
       <CoffeeParticles />
+      {isMobileViewport ? (
+        <section className="relative min-h-[100svh] overflow-hidden bg-[#0b0806] md:hidden">
+          <AnimatePresence initial={false} mode="sync">
+            <motion.div
+              key={`mobile-backdrop-${activeMobileSlide}`}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.9 }}
+              className="absolute inset-0"
+            >
+              <img
+                src={mobileSlide.image}
+                alt=""
+                aria-hidden="true"
+                className="h-full w-full scale-110 object-cover opacity-35 blur-2xl"
+              />
+              <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(8,5,3,.48)_0%,rgba(8,5,3,.76)_44%,#0b0806_82%)]" />
+            </motion.div>
+          </AnimatePresence>
+          <div className="coffee-grain pointer-events-none absolute inset-0 opacity-[0.09] mix-blend-soft-light" />
+
+          <header className={`fixed inset-x-0 top-0 z-[60] px-4 pb-3 pt-[max(0.8rem,env(safe-area-inset-top))] transition-all duration-500 ${
+            isScrolled ? 'border-b border-white/10 bg-[#0b0806]/88 backdrop-blur-xl' : 'bg-transparent'
+          }`}>
+            <div className="flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+                className="flex items-center gap-2.5 text-left"
+                aria-label="返回首页顶部"
+              >
+                <span className="grid h-9 w-9 place-items-center rounded-full border border-white/35 bg-black/10 backdrop-blur-md">
+                  <Coffee className="h-4 w-4" />
+                </span>
+                <span>
+                  <strong className="block text-[13px] font-semibold tracking-[0.12em]">悠然咖啡客</strong>
+                  <span className="block text-[7px] tracking-[0.26em] text-white/48">YURAN COFFEE</span>
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setMobileMenuOpen((current) => !current)}
+                className="grid h-10 w-10 place-items-center rounded-full border border-white/25 bg-black/15 text-white backdrop-blur-md"
+                aria-expanded={mobileMenuOpen}
+                aria-label={mobileMenuOpen ? '关闭导航菜单' : '打开导航菜单'}
+              >
+                {mobileMenuOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
+              </button>
+            </div>
+          </header>
+
+          <AnimatePresence>
+            {mobileMenuOpen && (
+              <motion.nav
+                initial={{ opacity: 0, y: -12, scale: 0.98 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -10, scale: 0.98 }}
+                transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
+                className="fixed inset-x-4 top-[4.65rem] z-[65] grid grid-cols-2 gap-2 border border-white/12 bg-[#120c09]/96 p-3 shadow-2xl backdrop-blur-2xl"
+                aria-label="移动端主要导航"
+              >
+                {[
+                  ['menu', '本季菜单'],
+                  ['builder', '私人特调'],
+                  ['wishlist', '收藏配方'],
+                  ['about', '品牌故事'],
+                  ['contact', '联系门店'],
+                  ['printer', '吧台出单'],
+                ].map(([tab, label]) => (
+                  <button
+                    key={tab}
+                    type="button"
+                    onClick={() => { setMobileMenuOpen(false); onNavigate(tab as HomeTab); }}
+                    className="border border-white/10 bg-white/[0.035] px-4 py-3 text-left text-[11px] tracking-[0.08em] text-white/76 transition active:bg-white/10"
+                  >
+                    {label}
+                  </button>
+                ))}
+                {user?.role === 'admin' && (
+                  <button
+                    type="button"
+                    onClick={() => { setMobileMenuOpen(false); onNavigateToAdmin?.(); }}
+                    className="col-span-2 flex items-center justify-center gap-2 bg-[#e2c092] px-4 py-3 text-[11px] font-semibold text-[#24140d]"
+                  >
+                    <LayoutDashboard className="h-4 w-4" />进入管理后台
+                  </button>
+                )}
+              </motion.nav>
+            )}
+          </AnimatePresence>
+
+          <div className="relative z-10 flex min-h-[100svh] flex-col px-5 pb-28 pt-24">
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={`mobile-slide-${activeMobileSlide}`}
+                initial={{ opacity: 0, y: 18 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -14 }}
+                transition={{ duration: 0.72, ease: [0.22, 1, 0.36, 1] }}
+                className="flex flex-1 flex-col"
+                aria-live="polite"
+              >
+                <div className="mb-3 flex items-center justify-between text-[8px] font-semibold tracking-[0.25em] text-white/55">
+                  <span>{mobileSlide.eyebrow}</span>
+                  <span>{String(activeMobileSlide + 1).padStart(2, '0')} / {String(MOBILE_HERO_SLIDES.length).padStart(2, '0')}</span>
+                </div>
+
+                <div className="relative overflow-hidden border border-white/18 bg-black shadow-[0_24px_70px_rgba(0,0,0,.36)]">
+                  <video
+                    key={mobileSlide.mobileVideo}
+                    className="aspect-video w-full object-cover"
+                    poster={mobileSlide.image}
+                    autoPlay
+                    muted
+                    loop
+                    playsInline
+                    preload="auto"
+                    disablePictureInPicture
+                    aria-label={mobileSlide.copy}
+                  >
+                    <source src={mobileSlide.mobileVideo} type="video/mp4" />
+                  </video>
+                  <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,transparent_55%,rgba(5,3,2,.38)_100%)]" />
+                  <span className="absolute bottom-3 left-3 text-[7px] tracking-[0.22em] text-white/62">REAL TIME / ORIGINAL SPEED</span>
+                </div>
+
+                <div className="mt-auto pt-7">
+                  <p className="font-serif text-sm italic tracking-[0.06em] text-[#d9b98f]">{mobileSlide.mobileNote}</p>
+                  <h1 className="mt-3 max-w-[22rem] font-serif text-[2.65rem] leading-[1.06] tracking-[-0.045em] text-[#f4ede3]">
+                    {mobileSlide.mobileTitle}
+                  </h1>
+                  <p className="mt-4 max-w-[21rem] text-[13px] leading-6 text-white/62">{mobileSlide.copy}</p>
+
+                  <div className="mt-6 flex items-center gap-3 border-t border-white/13 pt-5">
+                    <button
+                      type="button"
+                      onClick={() => onNavigate('menu')}
+                      className="flex flex-1 items-center justify-between bg-[#e1bd8c] px-5 py-3.5 text-[10px] font-bold tracking-[0.16em] text-[#20120c]"
+                    >
+                      探索本季菜单 <ArrowRight className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={scrollToStories}
+                      className="grid h-[46px] w-[46px] place-items-center rounded-full border border-white/22 text-white/70"
+                      aria-label="继续向下探索"
+                    >
+                      <ArrowDown className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            </AnimatePresence>
+          </div>
+
+          <nav
+            className="mobile-home-dock fixed inset-x-3 bottom-3 z-[70] grid grid-cols-4 border border-white/12 bg-[#15100d]/94 px-2 py-2 shadow-[0_18px_70px_rgba(0,0,0,.45)] backdrop-blur-2xl"
+            aria-label="手机端快捷导航"
+          >
+            <button type="button" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} className="flex flex-col items-center gap-1 py-1 text-[#e2bd8d]">
+              <Home className="h-4 w-4" /><span className="text-[8px] tracking-[0.12em]">首页</span>
+            </button>
+            <button type="button" onClick={() => onNavigate('menu')} className="flex flex-col items-center gap-1 py-1 text-white/56">
+              <BookOpen className="h-4 w-4" /><span className="text-[8px] tracking-[0.12em]">菜单</span>
+            </button>
+            <button type="button" onClick={openCoffeeAssistant} className="flex flex-col items-center gap-1 py-1 text-white/56">
+              <MessageCircle className="h-4 w-4" /><span className="text-[8px] tracking-[0.12em]">顾问</span>
+            </button>
+            <button type="button" onClick={openMemberArea} className="flex flex-col items-center gap-1 py-1 text-white/56">
+              <UserRound className="h-4 w-4" /><span className="text-[8px] tracking-[0.12em]">我的</span>
+            </button>
+          </nav>
+        </section>
+      ) : (
       <section className="relative min-h-[100svh] overflow-hidden bg-[#160d08]">
         <AnimatePresence initial={false} mode="sync">
           <motion.div
@@ -448,6 +670,7 @@ export default function CoffeeHome({
           </div>
         </div>
       </section>
+      )}
 
       <section
         ref={philosophyRef}

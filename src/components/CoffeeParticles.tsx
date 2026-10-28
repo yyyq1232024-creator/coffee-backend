@@ -16,7 +16,8 @@ export default function CoffeeParticles() {
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas) return;
+    const mobileViewport = window.matchMedia('(max-width: 767px)').matches;
+    if (!canvas || mobileViewport) return;
 
     const context = canvas.getContext('2d');
     if (!context) return;

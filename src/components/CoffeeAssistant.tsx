@@ -22,6 +22,12 @@ export default function CoffeeAssistant() {
     if (open) endRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, open, loading]);
 
+  useEffect(() => {
+    const openAssistant = () => setOpen(true);
+    window.addEventListener('coffee-assistant:open', openAssistant);
+    return () => window.removeEventListener('coffee-assistant:open', openAssistant);
+  }, []);
+
   const sendMessage = async (e?: React.FormEvent) => {
     e?.preventDefault();
     const content = input.trim();
@@ -51,7 +57,7 @@ export default function CoffeeAssistant() {
   };
 
   return (
-    <div className="fixed right-4 bottom-4 sm:right-7 sm:bottom-7 z-[80]">
+    <div className="coffee-assistant-root fixed right-4 bottom-4 sm:right-7 sm:bottom-7 z-[80]">
       {open && (
         <section className="mb-3 w-[calc(100vw-2rem)] sm:w-[380px] h-[560px] max-h-[72vh] bg-[#FBF8F2] border border-[#A88C74]/35 rounded-[28px] shadow-2xl overflow-hidden flex flex-col animate-fadeIn">
           <header className="px-5 py-4 bg-[#1D140F] text-white flex items-center justify-between">

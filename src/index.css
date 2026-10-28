@@ -351,6 +351,12 @@
   .origin-globe-readout { top: 6%; }
 }
 
+@media (max-width: 767px) {
+  body:has(.mobile-home-dock) .coffee-assistant-root {
+    bottom: 5.75rem;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .origin-detail-enter { animation: none !important; }
 }
