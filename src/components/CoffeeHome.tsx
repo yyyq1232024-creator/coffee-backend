@@ -5,7 +5,7 @@ import { User as UserType } from '../types';
 import CoffeeCursor from './CoffeeCursor';
 import CoffeeParticles from './CoffeeParticles';
 
-type HomeTab = 'home' | 'menu' | 'builder' | 'wishlist' | 'about' | 'contact' | 'printer';
+type HomeTab = 'home' | 'menu' | 'builder' | 'wishlist' | 'cart' | 'about' | 'contact' | 'printer';
 
 interface CoffeeHomeProps {
   user: UserType | null;
@@ -180,7 +180,7 @@ const STORIES = [
     label: 'MEMORY / MADE PERSONAL',
     title: '你的配方，你的故事。',
     english: 'Made yours, kept close.',
-    copy: '保存一杯专属特调，也保存那天的心情。登录会员即可收藏配方、同步订单，并把属于你的咖啡记忆打印成一张真正可以带走的小票。',
+    copy: '保存一杯专属特调，也保存那天的心情。登录会员即可同步收藏与订单，让每一次回到悠然，都能快速找到熟悉的风味。',
     image: 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&w=2200&q=90',
   },
 ];
@@ -350,10 +350,10 @@ export default function CoffeeHome({
                 {[
                   ['menu', '本季菜单'],
                   ['builder', '私人特调'],
-                  ['wishlist', '收藏配方'],
+                  ['wishlist', '收藏夹'],
+                  ['cart', '购物车'],
                   ['about', '品牌故事'],
                   ['contact', '联系门店'],
-                  ['printer', '吧台出单'],
                 ].map(([tab, label]) => (
                   <button
                     key={tab}
@@ -516,6 +516,7 @@ export default function CoffeeHome({
             <nav className="hidden items-center gap-7 text-[10px] font-semibold tracking-[0.18em] lg:flex">
               <button onClick={() => onNavigate('menu')} className="coffee-nav-link">菜单 MENU</button>
               <button onClick={() => onNavigate('builder')} className="coffee-nav-link">特调 LAB</button>
+              <button onClick={() => onNavigate('cart')} className="coffee-nav-link">购物车 CART</button>
               <button onClick={() => onNavigate('about')} className="coffee-nav-link">故事 STORY</button>
               <button onClick={() => onNavigate('contact')} className="coffee-nav-link">联络 CONTACT</button>
             </nav>
@@ -583,8 +584,8 @@ export default function CoffeeHome({
                 {[
                   ['menu', '菜单'],
                   ['builder', '私人特调'],
-                  ['wishlist', '收藏配方'],
-                  ['printer', '吧台出单'],
+                  ['wishlist', '收藏夹'],
+                  ['cart', '购物车'],
                   ['about', '品牌故事'],
                   ['contact', '联系门店'],
                 ].map(([tab, label]) => (

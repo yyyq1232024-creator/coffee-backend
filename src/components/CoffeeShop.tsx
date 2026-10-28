@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Coffee, Heart, Trash2, Plus, Sparkles, Check, 
-  MapPin, Phone, Mail, FileText, Send, Share2, Printer, X, ChevronDown, Globe2, Menu, UserRound, LogOut, LayoutDashboard
+  MapPin, Phone, Mail, FileText, Send, Share2, Printer, X, ChevronDown, Globe2, Menu, UserRound, LogOut, LayoutDashboard, ShoppingCart
 } from 'lucide-react';
 import { User as UserType, WishlistItem, MenuProduct } from '../types';
 import CoffeeHome from './CoffeeHome';
@@ -19,14 +19,14 @@ interface CoffeeShopProps {
 }
 
 export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateToRegister, onNavigateToAdmin, onNavigateToProfile, onLogout }: CoffeeShopProps) {
-  // Navigation tabs: 'home' | 'menu' | 'builder' | 'wishlist' | 'about' | 'contact' | 'printer'
-  const [activeTab, setActiveTab] = useState<'home' | 'menu' | 'builder' | 'wishlist' | 'about' | 'contact' | 'printer'>('home');
+  type ShopTab = 'home' | 'menu' | 'builder' | 'wishlist' | 'cart' | 'about' | 'contact' | 'printer';
+  const [activeTab, setActiveTab] = useState<ShopTab>('home');
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [openDropdown, setOpenDropdown] = useState<'order' | 'about' | 'member' | null>(null);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [originBatchId, setOriginBatchId] = useState<string | null>(null);
 
-  const handleTabClick = (tab: 'home' | 'menu' | 'builder' | 'wishlist' | 'about' | 'contact' | 'printer') => {
+  const handleTabClick = (tab: ShopTab) => {
     setOpenDropdown(null);
     setMobileNavOpen(false);
     setActiveTab(tab);
@@ -49,7 +49,7 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
   const [menuFilter, setMenuFilter] = useState<'all' | 'coffee' | 'tea' | 'dessert'>('all');
   const [contactSuccess, setContactSuccess] = useState(false);
   const [wishlist, setWishlist] = useState<WishlistItem[]>([]);
-  const [selectedWishIds, setSelectedWishIds] = useState<string[]>([]);
+  const [cartItems, setCartItems] = useState<WishlistItem[]>([]);
   const [wishlistReady, setWishlistReady] = useState(false);
   const [addedAnimationId, setAddedAnimationId] = useState<number | null>(null);
   const [menuItems, setMenuItems] = useState<MenuProduct[]>([]);
@@ -81,20 +81,21 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
   const [checkoutNotes, setCheckoutNotes] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<'wechat' | 'alipay' | 'member'>('wechat');
   const [lastPrintJobId, setLastPrintJobId] = useState<string | null>(null);
+  const [submitToBarLoading, setSubmitToBarLoading] = useState(false);
 
   const handleCheckout = async () => {
     if (!user) {
       setShowLoginModal(true);
       return;
     }
-    if (selectedWishlist.length === 0) {
-      alert('请先从收藏配方中选择至少一杯加入本次订单。');
+    if (cartItems.length === 0) {
+      alert('购物车还是空的，请先添加想购买的饮品。');
       return;
     }
     setCheckoutLoading(true);
     try {
       const jobId = "PRT-" + Math.floor(1000 + Math.random() * 9000) + "-" + Math.random().toString(36).substring(2, 8).toUpperCase();
-      const snapshot = [...selectedWishlist];
+      const snapshot = [...cartItems];
       const notesString = checkoutNotes.trim() ? `【客座座号/打包交代】${checkoutNotes.trim()}` : '';
       const checkoutRes = await fetch('/api/orders/checkout', {
         method: 'POST',
@@ -116,7 +117,7 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
             notes: itm.notes ? `${itm.notes} ${notesString}` : notesString,
             img: itm.img
           })),
-          totalPrice: totalWishlistPrice,
+          totalPrice: totalCartPrice,
           type: receiptType
         })
       });
@@ -126,13 +127,13 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
       }
       const orderId = checkoutData.data?.id;
 
-      setSelectedWishIds([]);
+      saveCart([]);
       setReceiptItems([...snapshot]);
       setReceiptNumber(orderId);
       setLastPrintJobId(jobId);
       setShowReceipt(true);
       await fetchMenuProducts();
-      alert('订单已成功入账，库存已经同步扣减。');
+      alert('支付成功，库存已同步扣减。请在电子订单中确认提交制作。');
     } catch (e: any) {
       alert(`下单支付出错: ${e.message}`);
     } finally {
@@ -142,8 +143,9 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
 
   const handleCreateAndPrintJob = async () => {
     if (!lastPrintJobId) return;
+    setSubmitToBarLoading(true);
     try {
-      const itemsToPrint = receiptItems.length > 0 ? receiptItems : wishlist;
+      const itemsToPrint = receiptItems;
       const notesString = checkoutNotes.trim() ? `【客座座号/打包交代】${checkoutNotes.trim()}` : '';
       const finalPrice = itemsToPrint.reduce((sum, item) => sum + item.price, 0);
 
@@ -180,14 +182,17 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
         return [printJobsData.data, ...filtered];
       });
 
-      // Close modal and navigate
+      // The customer completes the flow here; the queue remains an admin workspace.
       setShowReceipt(false);
-      setActiveTab('printer');
+      setActiveTab('cart');
+      setCheckoutNotes('');
 
-      alert('已提交到吧台出单队列，店员处理后状态会自动更新。');
+      alert('订单已提交制作，吧台会按顺序为您准备。');
 
     } catch (e: any) {
-      alert(`提交吧台出单任务失败: ${e.message}`);
+      alert(`提交制作失败: ${e.message}`);
+    } finally {
+      setSubmitToBarLoading(false);
     }
   };
 
@@ -341,6 +346,50 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
     localStorage.setItem(storageKey, JSON.stringify(newWishlist));
   };
 
+  // The cart is intentionally separate from favorites. It is short-lived purchase
+  // intent, while favorites remain a persistent recipe collection in the database.
+  const cartStorageKey = user ? `coffee_cart_${user.username}` : 'coffee_cart_guest';
+
+  useEffect(() => {
+    try {
+      const savedForAccount = localStorage.getItem(cartStorageKey);
+      const guestItems = user ? localStorage.getItem('coffee_cart_guest') : null;
+      const accountItems: WishlistItem[] = savedForAccount ? JSON.parse(savedForAccount) : [];
+      const migratedGuestItems: WishlistItem[] = guestItems ? JSON.parse(guestItems) : [];
+      const nextItems = accountItems.length > 0 ? accountItems : migratedGuestItems;
+      setCartItems(nextItems);
+      if (user && migratedGuestItems.length > 0 && accountItems.length === 0) {
+        localStorage.setItem(cartStorageKey, JSON.stringify(migratedGuestItems));
+        localStorage.removeItem('coffee_cart_guest');
+      }
+    } catch {
+      setCartItems([]);
+    }
+  }, [cartStorageKey, user?.id]);
+
+  const saveCart = (nextItems: WishlistItem[]) => {
+    setCartItems(nextItems);
+    localStorage.setItem(cartStorageKey, JSON.stringify(nextItems));
+  };
+
+  const addToCart = (source: WishlistItem, switchToCart = false) => {
+    const cartItem: WishlistItem = {
+      ...source,
+      wishId: `cart-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      addedAt: new Date().toISOString(),
+    };
+    saveCart([cartItem, ...cartItems]);
+    if (switchToCart) handleTabClick('cart');
+  };
+
+  const removeCartItem = (cartItemId: string) => {
+    saveCart(cartItems.filter(item => item.wishId !== cartItemId));
+  };
+
+  const duplicateCartItem = (source: WishlistItem) => {
+    addToCart(source);
+  };
+
   // ==================== Authenticated Counter Order Queue ====================
   const [printQueue, setPrintQueue] = useState<any[]>([]);
   const [isQueueLoading, setIsQueueLoading] = useState(false);
@@ -459,34 +508,6 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
     }
   };
 
-  const handleManualPrintFromWishlist = async () => {
-    if (selectedWishlist.length === 0) return;
-    if (!user || !token) {
-      setShowLoginModal(true);
-      return;
-    }
-    try {
-      const res = await fetch('/api/print/submit', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          items: selectedWishlist,
-          totalPrice: totalWishlistPrice
-        })
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.error || "发送打印失败");
-      
-      alert("手作风味单已提交到吧台。请到「吧台出单」查看处理进度。");
-      fetchPrintQueue(true);
-    } catch (e: any) {
-      alert(`发送服务器打印出错: ${e.message}`);
-    }
-  };
-
   // Switch display and select customize state in accordion
   const toggleQuickCustomize = (itemId: number) => {
     if (quickCustomizeItemId === itemId) {
@@ -502,13 +523,9 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
     }
   };
 
-  // Add customized menu item to wishlist
-  const handleAddCustomToWishlist = (item: typeof menuItems[0]) => {
-    if (!user) {
-      setShowLoginModal(true);
-      return;
-    }
-    const wishId = 'wish-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7);
+  // Customized products belong in the cart; the heart remains a pure favorite toggle.
+  const handleAddCustomToCart = (item: typeof menuItems[0]) => {
+    const wishId = 'cart-source-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7);
     
     // Calculate custom price
     const hasSizeUp = quickSize.includes('Large') ? 3 : quickSize.includes('Venti') ? 5 : 0;
@@ -529,14 +546,33 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
       addedAt: new Date().toISOString()
     };
 
-    saveWishlist([newItem, ...wishlist]);
-    setSelectedWishIds(current => [wishId, ...current]);
+    addToCart(newItem);
     setAddedAnimationId(item.id);
     setQuickCustomizeItemId(null); // fold panel
     
     setTimeout(() => {
       setAddedAnimationId(null);
     }, 1200);
+  };
+
+  const handleAddMenuItemToCart = (item: typeof menuItems[0]) => {
+    const source: WishlistItem = {
+      wishId: `cart-source-${item.id}`,
+      itemId: item.id,
+      name: item.name,
+      price: item.price,
+      category: item.category,
+      img: item.img,
+      sugar: item.category === 'dessert' ? '甜点标准配方' : '半糖 (微甜恰到好处)',
+      milk: item.category === 'dessert' ? '甜点免额外乳底' : '香浓冰鲜牛奶',
+      temp: item.category === 'dessert' ? '冷藏常温最佳' : '标准热饮 (最醇厚香气)',
+      size: '中杯的轻盈体验 (Medium)',
+      notes: '标准出品',
+      addedAt: new Date().toISOString(),
+    };
+    addToCart(source);
+    setAddedAnimationId(item.id);
+    setTimeout(() => setAddedAnimationId(null), 1200);
   };
 
   // The heart is a true save toggle. Quantity belongs to checkout/customization,
@@ -550,7 +586,6 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
     if (wishlist.some(isDefaultForProduct)) {
       // Also clears duplicates created by the old add-only heart behavior.
       saveWishlist(wishlist.filter(wish => !isDefaultForProduct(wish)));
-      setSelectedWishIds(current => current.filter(id => !wishlist.filter(isDefaultForProduct).some(wish => wish.wishId === id)));
       setAddedAnimationId(null);
       return;
     }
@@ -570,7 +605,6 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
       addedAt: new Date().toISOString()
     };
     saveWishlist([newItem, ...wishlist.filter(wish => !isDefaultForProduct(wish))]);
-    setSelectedWishIds(current => [wishId, ...current.filter(id => !wishlist.filter(isDefaultForProduct).some(wish => wish.wishId === id))]);
     setAddedAnimationId(item.id);
     setTimeout(() => {
       setAddedAnimationId(null);
@@ -606,7 +640,6 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
     };
 
     saveWishlist([newItem, ...wishlist]);
-    setSelectedWishIds(current => [wishId, ...current]);
     alert(`已保存专属特调「${customCupName}」，以后可以直接按此配方复购。`);
     
     // Redirect
@@ -615,10 +648,30 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
     setBuilderExtras([]);
   };
 
+  const handleAddCustomCupToCart = () => {
+    if (!customCupName.trim()) {
+      alert('请先为这杯特调取一个名字。');
+      return;
+    }
+    const source: WishlistItem = {
+      wishId: `cart-source-${Date.now()}`,
+      name: `★独家手作★ ${customCupName}`,
+      price: totalBuilderPrice,
+      category: 'coffee',
+      img: 'https://images.unsplash.com/photo-1497935586351-b67a49e012bf?w=500',
+      sugar: builderSugar,
+      milk: builderMilk,
+      temp: builderTemp,
+      size: builderSize,
+      notes: builderExtras.length > 0 ? `手作顶料: ${builderExtras.join(', ')}` : '独家匠心特配',
+      addedAt: new Date().toISOString(),
+    };
+    addToCart(source, true);
+  };
+
   // Delete single wishlist card
   const handleDeleteWishItem = (wishId: string) => {
     saveWishlist(wishlist.filter(item => item.wishId !== wishId));
-    setSelectedWishIds(current => current.filter(id => id !== wishId));
   };
 
   // Inline update handler inside wishlist view
@@ -656,13 +709,13 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
     }, 4000);
   };
 
-  const selectedWishlist = wishlist.filter(item => selectedWishIds.includes(item.wishId));
-  const totalWishlistPrice = selectedWishlist.reduce((sum, item) => sum + item.price, 0);
+  const totalCartPrice = cartItems.reduce((sum, item) => sum + item.price, 0);
   const primaryNavigation = [
     { tab: 'menu' as const, label: '菜单' },
     { tab: 'builder' as const, label: '私人特调' },
-    { tab: 'wishlist' as const, label: '收藏配方', badge: wishlist.length },
-    { tab: 'printer' as const, label: '吧台出单', badge: printQueue.filter(job => job.status === 'pending').length },
+    { tab: 'wishlist' as const, label: '收藏夹', badge: wishlist.length },
+    { tab: 'cart' as const, label: '购物车', badge: cartItems.length },
+    ...(user?.role === 'admin' ? [{ tab: 'printer' as const, label: '吧台队列', badge: printQueue.filter(job => job.status === 'pending').length }] : []),
   ];
 
   return (
@@ -767,7 +820,8 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
                         <button onClick={() => { setOpenDropdown(null); onNavigateToAdmin?.(); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-[#5C3A21] hover:bg-[#F5F0EA] flex items-center gap-2"><LayoutDashboard className="w-3.5 h-3.5" />管理后台</button>
                       )}
                       <button onClick={() => { setOpenDropdown(null); onNavigateToProfile?.(); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-stone-600 hover:bg-stone-50 flex items-center gap-2"><UserRound className="w-3.5 h-3.5" />个人中心</button>
-                      <button onClick={() => handleTabClick('wishlist')} className="w-full rounded-lg px-3 py-2 text-left text-xs text-stone-600 hover:bg-stone-50">我的收藏配方</button>
+                      <button onClick={() => handleTabClick('wishlist')} className="w-full rounded-lg px-3 py-2 text-left text-xs text-stone-600 hover:bg-stone-50">我的收藏夹</button>
+                      <button onClick={() => handleTabClick('cart')} className="w-full rounded-lg px-3 py-2 text-left text-xs text-stone-600 hover:bg-stone-50 flex items-center justify-between"><span>购物车</span>{cartItems.length > 0 && <span className="text-[9px] text-[#79543B]">{cartItems.length}</span>}</button>
                       <button onClick={() => { setOpenDropdown(null); onLogout?.(); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-rose-600 hover:bg-rose-50 flex items-center gap-2"><LogOut className="w-3.5 h-3.5" />退出登录</button>
                     </div>
                   )}
@@ -1168,6 +1222,17 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
                             <Heart className={`w-4 h-4 ${isDefaultSaved ? 'fill-rose-600 text-rose-600' : 'text-current'} ${addedAnimationId === item.id ? 'scale-110' : ''}`} />
                             <span>{isDefaultSaved ? '已收藏' : '收藏'}</span>
                           </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleAddMenuItemToCart(item)}
+                            disabled={item.stock === 0}
+                            className="grid min-w-11 place-items-center rounded-xl border border-[#5C3A21] bg-[#5C3A21] text-white transition hover:bg-[#442A1B] disabled:cursor-not-allowed disabled:opacity-35"
+                            title="加入购物车"
+                            aria-label={`将${item.name}加入购物车`}
+                          >
+                            <ShoppingCart className="h-4 w-4" />
+                          </button>
                         </div>
                       </div>
                     </div>
@@ -1177,7 +1242,7 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
                       <div className="border-t-2 border-dashed border-[#A88C74]/20 bg-[#FAF9F5] p-5 space-y-4 animate-fadeIn">
                         <div className="text-[11px] font-bold text-[#5C3A21]/90 flex items-center gap-1 border-b border-[#A88C74]/10 pb-2">
                           <span>⚙️</span>
-                          <span>自定义「{item.name}」风味参数，完成后保存为常用配方</span>
+                          <span>自定义「{item.name}」风味参数，完成后加入购物车</span>
                         </div>
 
                         <div className="grid grid-cols-2 gap-3 text-xs">
@@ -1260,11 +1325,11 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
                         {/* Submit */}
                         <button
                           type="button"
-                          onClick={() => handleAddCustomToWishlist(item)}
+                          onClick={() => handleAddCustomToCart(item)}
                           className="w-full py-2.5 bg-[#5C3A21] hover:bg-amber-950 text-white font-bold rounded-xl text-xs font-serif transition border-none cursor-pointer flex items-center justify-center gap-2"
                         >
                           <Plus className="w-4 h-4" />
-                          保存为我的常用配方
+                          加入购物车
                         </button>
                       </div>
                     )}
@@ -1544,14 +1609,24 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
                   <span className="text-xl font-bold font-serif text-rose-700">¥ {totalBuilderPrice}</span>
                 </div>
                 
-                <button
-                  type="button"
-                  onClick={handleAddCustomCupToWishlist}
-                  className="w-full py-3 bg-[#5C3A21] hover:bg-amber-950 text-white font-extrabold text-xs rounded-xl shadow transition duration-200 border-none cursor-pointer font-serif flex items-center justify-center gap-2"
-                >
-                  <Plus className="w-4 h-4" />
-                  保存这份私人特调配方
-                </button>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <button
+                    type="button"
+                    onClick={handleAddCustomCupToWishlist}
+                    className="w-full py-3 bg-[#F2ECE5] hover:bg-[#E8DDD2] text-[#5C3A21] font-extrabold text-xs rounded-xl transition duration-200 border border-[#A88C74]/25 cursor-pointer font-serif flex items-center justify-center gap-2"
+                  >
+                    <Heart className="w-4 h-4" />
+                    保存到收藏夹
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleAddCustomCupToCart}
+                    className="w-full py-3 bg-[#5C3A21] hover:bg-amber-950 text-white font-extrabold text-xs rounded-xl shadow transition duration-200 border-none cursor-pointer font-serif flex items-center justify-center gap-2"
+                  >
+                    <ShoppingCart className="w-4 h-4" />
+                    加入购物车
+                  </button>
+                </div>
               </div>
 
             </div>
@@ -1599,10 +1674,10 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
               </div>
             </div>
           ) : (
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start max-w-6xl mx-auto">
+            <div className="max-w-4xl mx-auto">
               
               {/* Left Column: Custom Beverage Wishlist (lg:col-span-7) */}
-              <div className="lg:col-span-7 space-y-6">
+              <div className="space-y-6">
                 
                 {/* Header info */}
                 <div className="flex items-center justify-between border-b border-[#A88C74]/20 pb-4">
@@ -1610,7 +1685,7 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
                     <span>☕</span> 已保存配方 ({wishlist.length})
                   </h3>
                   <button 
-                    onClick={() => { if (window.confirm('确认删除全部收藏配方吗？')) { saveWishlist([]); setSelectedWishIds([]); } }}
+                    onClick={() => { if (window.confirm('确认删除全部收藏配方吗？')) saveWishlist([]); }}
                     className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg text-[10px] font-bold transition flex items-center gap-1 border-none cursor-pointer font-serif"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
@@ -1728,10 +1803,11 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
                         <span className="text-[10px] text-stone-400 font-mono">收藏于 {new Date(item.addedAt).toLocaleDateString()}</span>
                         <button
                           type="button"
-                          onClick={() => setSelectedWishIds(current => current.includes(item.wishId) ? current.filter(id => id !== item.wishId) : [...current, item.wishId])}
-                          className={`rounded-xl border px-3 py-2 text-[10px] font-bold cursor-pointer transition ${selectedWishIds.includes(item.wishId) ? 'border-[#5C3A21] bg-[#5C3A21] text-white' : 'border-stone-200 bg-white text-[#5C3A21] hover:border-[#8B5A2B]'}`}
+                          onClick={() => addToCart(item, true)}
+                          className="rounded-xl border border-[#5C3A21] bg-[#5C3A21] px-3 py-2 text-[10px] font-bold text-white cursor-pointer transition hover:bg-[#442A1B] flex items-center gap-1.5"
                         >
-                          {selectedWishIds.includes(item.wishId) ? '✓ 已加入本次订单' : '加入本次订单'}
+                          <ShoppingCart className="h-3.5 w-3.5" />
+                          加入购物车
                         </button>
                       </div>
 
@@ -1742,7 +1818,7 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
               </div>
 
               {/* Right Column: Premium Cashier Checkout Payment Card (lg:col-span-5) */}
-              <div className="lg:col-span-5 bg-[#FAF9F5] border-2 border-[#5C3A21]/15 rounded-3xl p-6 shadow-lg space-y-6 sticky top-24">
+              <div className="hidden">
                 
                 {/* Header of Cashier */}
                 <div className="text-center border-b border-dashed border-stone-200 pb-4 space-y-1">
@@ -1757,7 +1833,7 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
                 <div className="space-y-2.5 text-xs text-stone-600 bg-white p-4 rounded-2xl border border-[#A88C74]/10 shadow-xs">
                   <div className="flex justify-between items-center">
                     <span className="text-stone-400">商品件数 (Total Items):</span>
-                    <span className="font-mono font-bold text-[#5C3A21]">{selectedWishlist.length} 杯/件</span>
+                    <span className="font-mono font-bold text-[#5C3A21]">{cartItems.length} 杯/件</span>
                   </div>
                   <div className="flex justify-between items-center">
                     <span className="text-stone-400">定制调配费 (Extras):</span>
@@ -1769,7 +1845,7 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
                   </div>
                   <div className="border-t border-dashed border-stone-100 pt-2.5 flex justify-between items-center">
                     <span className="font-bold text-[#5C3A21]">应付总计 (Grand Total):</span>
-                    <span className="text-rose-700 font-bold font-serif text-lg">¥ {totalWishlistPrice}</span>
+                    <span className="text-rose-700 font-bold font-serif text-lg">¥ {totalCartPrice}</span>
                   </div>
                 </div>
 
@@ -1868,7 +1944,7 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
                   <button
                     type="button"
                     onClick={handleCheckout}
-                    disabled={checkoutLoading || selectedWishlist.length === 0}
+                    disabled={checkoutLoading || cartItems.length === 0}
                     className="w-full py-3.5 bg-[#5C3A21] hover:bg-amber-950 text-[#FAF9F5] font-black text-xs rounded-2xl shadow-md hover:shadow-lg transition duration-250 border-none cursor-pointer flex items-center justify-center gap-2 active:scale-98 disabled:opacity-50"
                   >
                     {checkoutLoading ? (
@@ -1881,7 +1957,7 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
                       </span>
                     ) : (
                       <span className="flex items-center gap-2">
-                        <span>{selectedWishlist.length === 0 ? '请先选择本次饮品' : `确认支付并提交订单 (¥${totalWishlistPrice})`}</span>
+                        <span>{cartItems.length === 0 ? '购物车为空' : `确认支付并提交订单 (¥${totalCartPrice})`}</span>
                       </span>
                     )}
                   </button>
@@ -1894,6 +1970,148 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
             </div>
           )}
 
+        </div>
+      )}
+
+      {/* ==================== SCREEN E: SHOPPING CART ==================== */}
+      {activeTab === 'cart' && (
+        <div id="cozy-cart-screen" className="space-y-8 animate-fadeIn max-w-6xl mx-auto">
+          <div className="text-center max-w-xl mx-auto space-y-2">
+            <span className="inline-flex items-center gap-2 text-[10px] font-bold tracking-[0.22em] text-[#8B5A2B] uppercase">
+              <ShoppingCart className="h-3.5 w-3.5" /> Order Cart
+            </span>
+            <h2 className="text-2xl font-bold text-[#5C3A21] font-serif">购物车</h2>
+            <p className="text-xs text-stone-500 leading-relaxed">
+              这里仅放本次准备购买的商品。收藏夹中的喜欢不会因结账而消失。
+            </p>
+          </div>
+
+          {cartItems.length === 0 ? (
+            <div className="bg-[#FAF9F5] border-2 border-dashed border-[#A88C74]/30 rounded-3xl p-12 text-center max-w-lg mx-auto space-y-4">
+              <div className="w-16 h-16 bg-[#EEE7DF] text-[#5C3A21] rounded-full flex items-center justify-center mx-auto">
+                <ShoppingCart className="h-7 w-7" />
+              </div>
+              <h3 className="text-base font-bold text-[#5C3A21] font-serif">购物车还是空的</h3>
+              <p className="text-xs text-stone-400 leading-relaxed">从菜单直接加入商品，或者把收藏夹里的常用配方放进来。</p>
+              <div className="flex flex-wrap justify-center gap-2.5 pt-2">
+                <button onClick={() => setActiveTab('menu')} className="px-5 py-2.5 bg-[#5C3A21] text-white font-bold text-xs rounded-xl border-none cursor-pointer">浏览菜单</button>
+                <button onClick={() => setActiveTab('wishlist')} className="px-5 py-2.5 bg-white text-[#5C3A21] font-bold text-xs rounded-xl border border-stone-200 cursor-pointer">打开收藏夹</button>
+              </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+              <section className="lg:col-span-7 space-y-4" aria-label="购物车商品">
+                <div className="flex items-center justify-between border-b border-[#A88C74]/20 pb-4">
+                  <h3 className="text-sm font-bold text-[#5C3A21] font-serif">本次商品 · {cartItems.length} 杯/件</h3>
+                  <button
+                    type="button"
+                    onClick={() => { if (window.confirm('确认清空购物车吗？')) saveCart([]); }}
+                    className="px-3 py-1.5 bg-stone-100 hover:bg-rose-50 text-stone-500 hover:text-rose-700 rounded-lg text-[10px] font-bold border-none cursor-pointer"
+                  >
+                    清空购物车
+                  </button>
+                </div>
+
+                {cartItems.map((item, index) => (
+                  <article key={item.wishId} className="flex gap-4 rounded-2xl border border-[#A88C74]/20 bg-white p-4 shadow-xs sm:p-5">
+                    <div className="h-20 w-20 shrink-0 overflow-hidden rounded-xl bg-stone-100 sm:h-24 sm:w-24">
+                      <img src={item.img} alt={item.name} referrerPolicy="no-referrer" className="h-full w-full object-cover" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <span className="text-[9px] font-mono text-stone-400">ITEM {String(index + 1).padStart(2, '0')}</span>
+                          <h4 className="truncate text-sm font-bold text-[#5C3A21] font-serif">{item.name}</h4>
+                        </div>
+                        <strong className="shrink-0 text-sm text-rose-700 font-serif">¥{item.price}</strong>
+                      </div>
+                      <p className="mt-2 line-clamp-2 text-[10px] leading-5 text-stone-500">
+                        {item.size} · {item.sugar} · {item.temp}{item.notes ? ` · ${item.notes}` : ''}
+                      </p>
+                      <div className="mt-3 flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => duplicateCartItem(item)}
+                          className="inline-flex items-center gap-1 rounded-lg border border-stone-200 bg-white px-2.5 py-1.5 text-[10px] font-bold text-[#5C3A21] cursor-pointer hover:border-[#B89A83]"
+                        >
+                          <Plus className="h-3 w-3" /> 再加一杯
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => removeCartItem(item.wishId)}
+                          className="inline-flex items-center gap-1 rounded-lg border-0 bg-transparent px-2 py-1.5 text-[10px] text-stone-400 cursor-pointer hover:text-rose-600"
+                        >
+                          <Trash2 className="h-3 w-3" /> 移除
+                        </button>
+                      </div>
+                    </div>
+                  </article>
+                ))}
+              </section>
+
+              <aside className="lg:col-span-5 lg:sticky lg:top-24 rounded-3xl border border-[#5C3A21]/15 bg-[#FAF9F5] p-5 shadow-lg sm:p-6 space-y-5" aria-label="订单结算">
+                <div className="border-b border-dashed border-stone-200 pb-4">
+                  <span className="text-[9px] font-bold tracking-[0.18em] text-[#8B5A2B]">CHECKOUT</span>
+                  <h3 className="mt-1 text-lg font-bold text-[#5C3A21] font-serif">确认订单</h3>
+                  <p className="mt-1 text-[10px] text-stone-400">支付完成后，再确认一次即可提交吧台制作。</p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 rounded-xl bg-stone-100 p-1">
+                  <button type="button" onClick={() => setReceiptType('dine-in')} className={`rounded-lg border-0 py-2.5 text-xs font-bold cursor-pointer ${receiptType === 'dine-in' ? 'bg-[#5C3A21] text-white shadow' : 'bg-transparent text-stone-500'}`}>堂食</button>
+                  <button type="button" onClick={() => setReceiptType('take-away')} className={`rounded-lg border-0 py-2.5 text-xs font-bold cursor-pointer ${receiptType === 'take-away' ? 'bg-[#5C3A21] text-white shadow' : 'bg-transparent text-stone-500'}`}>外带</button>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="block text-[11px] font-bold text-[#5C3A21]">桌号 / 取单备注</label>
+                  <input
+                    type="text"
+                    value={checkoutNotes}
+                    onChange={(event) => setCheckoutNotes(event.target.value)}
+                    placeholder={receiptType === 'dine-in' ? '例如：大堂 3 号桌' : '例如：15 分钟后到店取'}
+                    className="w-full rounded-xl border border-stone-200 bg-white p-3 text-xs text-stone-700 outline-none focus:border-[#8B5A2B]"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <span className="block text-[11px] font-bold text-[#5C3A21]">支付方式</span>
+                  <div className="grid grid-cols-3 gap-2">
+                    {([
+                      ['wechat', '微信'],
+                      ['alipay', '支付宝'],
+                      ['member', '会员卡'],
+                    ] as const).map(([method, label]) => (
+                      <button
+                        key={method}
+                        type="button"
+                        onClick={() => setPaymentMethod(method)}
+                        className={`rounded-xl border px-2 py-2.5 text-[10px] font-bold cursor-pointer ${paymentMethod === method ? 'border-[#5C3A21] bg-white text-[#5C3A21] shadow-xs' : 'border-stone-200 bg-transparent text-stone-500'}`}
+                      >
+                        {label}{paymentMethod === method ? ' ✓' : ''}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-[#A88C74]/10 bg-white p-4 text-xs">
+                  <div className="flex justify-between text-stone-500"><span>商品数量</span><span>{cartItems.length} 杯/件</span></div>
+                  <div className="mt-3 flex items-end justify-between border-t border-dashed border-stone-200 pt-3">
+                    <strong className="text-[#5C3A21]">应付总计</strong>
+                    <strong className="text-xl text-rose-700 font-serif">¥{totalCartPrice}</strong>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleCheckout}
+                  disabled={checkoutLoading}
+                  className="w-full rounded-2xl border-0 bg-[#5C3A21] py-3.5 text-xs font-black text-white shadow-md cursor-pointer transition hover:bg-[#442A1B] disabled:cursor-wait disabled:opacity-60"
+                >
+                  {checkoutLoading ? '正在确认库存与支付…' : `确认支付 ¥${totalCartPrice}`}
+                </button>
+                {!user && <p className="text-center text-[9px] text-stone-400">结算前需要登录，以便保存订单和取单信息。</p>}
+              </aside>
+            </div>
+          )}
         </div>
       )}
 
@@ -2184,14 +2402,14 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
                 <div className="p-12 text-center text-stone-400 bg-white border border-stone-200 rounded-3xl space-y-3">
                   <p className="text-sm font-bold">当前没有待处理的出单任务</p>
                   <p className="text-xs leading-normal max-w-sm mx-auto text-stone-500">
-                    已付款订单会保存在您的账户中。点击收据上的「提交吧台出单」即可进入处理队列。
+                    已支付订单会在顾客确认提交制作后进入这里，由吧台按顺序处理。
                   </p>
                   <div className="pt-2">
                     <button 
                       onClick={() => setActiveTab('menu')}
                       className="px-4 py-2.5 bg-[#5C3A21] hover:bg-amber-950 text-white font-bold rounded-xl text-xs transition cursor-pointer border-none font-serif"
                     >
-                      去点杯咖啡测试打单 →
+                      返回菜单 →
                     </button>
                   </div>
                 </div>
@@ -2347,7 +2565,7 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
 
             {/* List items on invoice */}
             <div className="py-4 space-y-3 max-h-56 overflow-y-auto pr-1">
-              {(receiptItems.length > 0 ? receiptItems : wishlist).map((item, idx) => (
+              {receiptItems.map((item, idx) => (
                 <div key={item.wishId} className="text-[11px] border-b border-stone-150 pb-2 space-y-1">
                   <div className="flex justify-between font-bold">
                     <span>{idx + 1}. {item.name.replace('★独家手作★', '').substring(0, 16)}</span>
@@ -2366,7 +2584,7 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
             <div className="border-t-2 border-dashed border-stone-300 pt-4 text-xs space-y-1.5">
               <div className="flex justify-between">
                 <span>品项共计:</span>
-                <span>{receiptItems.length > 0 ? receiptItems.length : wishlist.length} 杯/件</span>
+                <span>{receiptItems.length} 杯/件</span>
               </div>
               <div className="flex justify-between text-stone-500">
                 <span>服务加水料费:</span>
@@ -2378,7 +2596,7 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
               </div>
               <div className="flex justify-between font-bold text-sm text-[#5C3A21] border-t border-stone-200 pt-2 font-serif">
                 <span>实收总计:</span>
-                <span>¥ {receiptItems.length > 0 ? receiptItems.reduce((sum, item) => sum + item.price, 0) : totalWishlistPrice}</span>
+                <span>¥ {receiptItems.reduce((sum, item) => sum + item.price, 0)}</span>
               </div>
             </div>
 
@@ -2389,7 +2607,7 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
               <div className="text-[9px] text-stone-400 font-mono tracking-[0.2em]">{receiptNumber}-9F2DA</div>
               
               <p className="text-[9px] text-stone-400 leading-normal font-light max-w-xs mt-2">
-                * 滴！请在大堂柜外侧二维码扫描器出示此电子单。咖啡工匠将立刻为您称量豆粉、配调冲滤。感谢支持悠然手作。
+                 * 支付已完成。点击下方按钮后，订单将进入吧台制作队列，请留意取单号。
               </p>
             </div>
 
@@ -2397,14 +2615,15 @@ export default function CoffeeShop({ user, token, onNavigateToLogin, onNavigateT
             <div className="flex gap-2.5 mt-6 border-t border-stone-200 pt-4">
               <button
                 onClick={handleCreateAndPrintJob}
+                disabled={submitToBarLoading}
                 className="flex-1 py-2 bg-[#5C3A21] hover:bg-[#452b19] text-white text-[10px] font-bold rounded-lg transition border-none cursor-pointer flex items-center justify-center gap-1 font-serif active:scale-95"
               >
                 <Printer className="w-3.5 h-3.5" />
-                提交吧台出单
+                {submitToBarLoading ? '正在提交…' : '确认提交制作'}
               </button>
               <button
                 onClick={() => {
-                  navigator.clipboard.writeText(JSON.stringify(receiptItems.length > 0 ? receiptItems : wishlist, null, 2));
+                  navigator.clipboard.writeText(JSON.stringify(receiptItems, null, 2));
                   alert('配方代码已完美写入剪贴板，您可以一键分享给微信好友！');
                 }}
                 className="flex-1 py-2 bg-stone-150 hover:bg-stone-200 text-stone-850 text-[10px] font-bold rounded-lg transition border-none cursor-pointer flex items-center justify-center gap-1 font-serif"
