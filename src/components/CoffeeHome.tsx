@@ -322,7 +322,10 @@ export default function CoffeeHome({
   const openMemberArea = () => (user ? onNavigateToProfile?.() : onNavigateToLogin());
 
   return (
-    <div className="coffee-home bg-[#100a07] text-white overflow-clip">
+    <div
+      className="coffee-home bg-[#100a07] text-white overflow-clip"
+      data-hero-slide={isMobileViewport ? activeMobileSlide : activeSlide}
+    >
       <CoffeeCursor />
       <CoffeeParticles />
       {isMobileViewport ? (
@@ -712,9 +715,11 @@ export default function CoffeeHome({
 
       <section
         ref={philosophyRef}
+        data-philosophy-anchor
         onPointerMove={handlePhilosophyPointerMove}
         className="relative isolate min-h-[78svh] overflow-hidden bg-[#ede7dc] px-5 py-24 text-[#24140d] md:px-10 md:py-36"
       >
+        <div aria-hidden="true" className="philosophy-aroma-bloom pointer-events-none absolute inset-0 -z-10" />
         <div
           aria-hidden="true"
           className="pointer-events-none absolute inset-0 -z-10 opacity-70 transition-opacity duration-700"

@@ -9,6 +9,7 @@ import RegisterForm from './components/RegisterForm';
 import UserProfile from './components/UserProfile';
 import AdminPanel from './components/AdminPanel';
 import CoffeeShop from './components/CoffeeShop';
+import AmbientSound from './components/AmbientSound';
 
 const CINEMATIC_BACKGROUNDS = [
   "https://images.unsplash.com/photo-1507133750040-4a8f57021571?auto=format&fit=crop&w=1920&q=80", // Elegant dark espresso extraction, steam/crema
@@ -192,6 +193,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#FAF9F5] text-slate-800 flex flex-col font-sans">
+      <AmbientSound />
       
       {/* Dynamic Floating Notification */}
       {notification && (
