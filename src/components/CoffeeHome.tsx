@@ -22,7 +22,6 @@ const HERO_SLIDES = [
     eyebrow: 'FIRST CUP / 01',
     title: ['PURE', 'RITUAL'],
     copy: '油脂、温度与烘焙香气在原速镜头里自然展开，一杯咖啡从清晰的细节开始。',
-    video: '/media/hero-coffee-cup-4k.mp4?v=20261029-stream',
     mobileVideo: '/media/hero-coffee-cup-4k-mobile.mp4',
     image: '/media/hero-coffee-cup-4k.webp',
     tone: 'COFFEE / ROAST / REAL TIME',
@@ -31,7 +30,6 @@ const HERO_SLIDES = [
     eyebrow: 'COASTLINE / 02',
     title: ['OCEAN', 'RHYTHM'],
     copy: '海浪按照自己的频率抵达岸边，清晰、自然，也无需被催促。',
-    video: '/media/hero-waves-4k.mp4?v=20261029-stream',
     mobileVideo: '/media/hero-waves-4k-mobile.mp4',
     image: '/media/hero-waves-4k.webp',
     tone: 'WATER / AIR / REAL TIME',
@@ -40,7 +38,6 @@ const HERO_SLIDES = [
     eyebrow: 'STILL WATERS / 03',
     title: ['STILL', 'WATERS'],
     copy: '湖岸保持平静，时间自然流动，风味也在此刻慢慢展开。',
-    video: '/media/hero-lake-4k.mp4?v=20261029-stream',
     mobileVideo: '/media/hero-lake-4k-mobile.mp4',
     image: '/media/hero-lake-4k.webp',
     tone: 'WATER / HILLS / SILENCE',
@@ -49,7 +46,6 @@ const HERO_SLIDES = [
     eyebrow: 'THE JOURNEY / 04',
     title: ['TAKE', 'YOUR TIME'],
     copy: '沿着山路自然前行，不抢时间，也不遗漏沿途的风景。',
-    video: '/media/hero-road-4k.mp4?v=20261029-stream',
     mobileVideo: '/media/hero-road-4k-mobile.mp4',
     image: '/media/hero-road-4k.webp',
     tone: 'THE SCENIC ROUTE',
@@ -58,7 +54,6 @@ const HERO_SLIDES = [
     eyebrow: 'QUIET COMPANY / 05',
     title: ['QUIET', 'COMPANY'],
     copy: '水面上的相遇无需喧哗，松弛本身就是一种陪伴。',
-    video: '/media/hero-swans-4k.mp4?v=20261029-stream',
     mobileVideo: '/media/hero-swans-4k-mobile.mp4',
     image: '/media/hero-swans-4k.webp',
     tone: 'NATURE IN REAL TIME',
@@ -67,7 +62,6 @@ const HERO_SLIDES = [
     eyebrow: 'BREWING RITUAL / 06',
     title: ['POUR', 'SLOWLY'],
     copy: '一杯咖啡的完成不必仓促，让水流、香气与温度自然发生。',
-    video: '/media/hero-pour-4k.mp4?v=20261029-stream',
     mobileVideo: '/media/hero-pour-4k-mobile.mp4',
     image: '/media/hero-pour-4k.webp',
     tone: 'COFFEE / CRAFT / DETAIL',
@@ -76,7 +70,6 @@ const HERO_SLIDES = [
     eyebrow: 'URBAN LIGHT / 07',
     title: ['URBAN', 'LIGHT'],
     copy: '城市有自己的明暗层次，我们为其中留下一处从容的位置。',
-    video: '/media/hero-buildings-4k.mp4?v=20261029-stream',
     mobileVideo: '/media/hero-buildings-4k-mobile.mp4',
     image: '/media/hero-buildings-4k.webp',
     tone: 'FORM / SHADOW / RHYTHM',
@@ -85,12 +78,14 @@ const HERO_SLIDES = [
     eyebrow: 'WINDOW STORIES / 08',
     title: ['WINDOW', 'STORIES'],
     copy: '窗外的景色持续向前，手中的这一杯让片刻留了下来。',
-    video: '/media/hero-train-4k.mp4?v=20261029-stream',
     mobileVideo: '/media/hero-train-4k-mobile.mp4',
     image: '/media/hero-train-4k.webp',
     tone: 'PASSING SCENES / LASTING TASTE',
   },
 ];
+
+const HERO_REEL_VIDEO = '/media/hero-reel-4k.mp4?v=20261029-reel';
+const HERO_REEL_COMPACT_VIDEO = '/media/hero-reel-mobile.mp4?v=20261029-reel';
 
 const MOBILE_HERO_SLIDES = [
   {
@@ -221,12 +216,9 @@ export default function CoffeeHome({
   }, []);
 
   useEffect(() => {
+    if (!isMobileViewport) return;
     const timer = window.setInterval(() => {
-      if (isMobileViewport) {
-        setActiveMobileSlide((current) => (current + 1) % MOBILE_HERO_SLIDES.length);
-      } else {
-        setActiveSlide((current) => (current + 1) % HERO_SLIDES.length);
-      }
+      setActiveMobileSlide((current) => (current + 1) % MOBILE_HERO_SLIDES.length);
     }, 5000);
     return () => window.clearInterval(timer);
   }, [isMobileViewport]);
@@ -240,15 +232,15 @@ export default function CoffeeHome({
   }, []);
 
   useEffect(() => {
-    const compactPlayback = window.matchMedia('(max-width: 1024px)').matches;
-    const slides = isMobileViewport ? MOBILE_HERO_SLIDES : HERO_SLIDES;
-    const currentSlide = isMobileViewport ? activeMobileSlide : activeSlide;
+    if (!isMobileViewport) return;
+    const slides = MOBILE_HERO_SLIDES;
+    const currentSlide = activeMobileSlide;
     const nextSlide = slides[(currentSlide + 1) % slides.length];
     const preloadVideo = document.createElement('video');
     preloadVideo.preload = 'auto';
     preloadVideo.muted = true;
     preloadVideo.playsInline = true;
-    preloadVideo.src = compactPlayback ? nextSlide.mobileVideo : nextSlide.video;
+    preloadVideo.src = nextSlide.mobileVideo;
     preloadVideo.load();
     nextVideoPreloadRef.current = preloadVideo;
     return () => {
@@ -256,7 +248,7 @@ export default function CoffeeHome({
       preloadVideo.load();
       if (nextVideoPreloadRef.current === preloadVideo) nextVideoPreloadRef.current = null;
     };
-  }, [activeSlide, activeMobileSlide, isMobileViewport]);
+  }, [activeMobileSlide, isMobileViewport]);
 
   useEffect(() => {
     const updateNavigation = () => setIsScrolled(window.scrollY > 48);
@@ -297,7 +289,7 @@ export default function CoffeeHome({
       window.removeEventListener('pageshow', resumeVisibleHeroVideo);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [activeSlide, activeMobileSlide, isMobileViewport]);
+  }, [activeMobileSlide, isMobileViewport]);
 
   const keepHeroVideoPlaying = (video: HTMLVideoElement) => {
     heroVideoRef.current = video;
@@ -306,6 +298,11 @@ export default function CoffeeHome({
     if (bounds.bottom > 0 && bounds.top < window.innerHeight) {
       void video.play().catch(() => undefined);
     }
+  };
+
+  const syncDesktopSlideToVideo = (video: HTMLVideoElement) => {
+    const nextSlide = Math.min(HERO_SLIDES.length - 1, Math.floor(video.currentTime / 5));
+    setActiveSlide((current) => current === nextSlide ? current : nextSlide);
   };
 
   const scrollToStories = () => {
@@ -507,20 +504,11 @@ export default function CoffeeHome({
         </section>
       ) : (
       <section className="relative min-h-[100svh] overflow-hidden bg-[#160d08]">
-        <AnimatePresence initial={false} mode="sync">
-          <motion.div
-            key={activeSlide}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ opacity: { duration: 0.7 } }}
-            className="absolute inset-0"
-          >
+        <div className="absolute inset-0">
             <video
               ref={heroVideoRef}
-              key={HERO_SLIDES[activeSlide].video}
               className="h-full w-full object-cover"
-              poster={HERO_SLIDES[activeSlide].image}
+              poster={HERO_SLIDES[0].image}
               autoPlay
               muted
               loop
@@ -529,13 +517,13 @@ export default function CoffeeHome({
               disablePictureInPicture
               onCanPlay={(event) => keepHeroVideoPlaying(event.currentTarget)}
               onPause={(event) => keepHeroVideoPlaying(event.currentTarget)}
+              onTimeUpdate={(event) => syncDesktopSlideToVideo(event.currentTarget)}
               aria-label={HERO_SLIDES[activeSlide].copy}
             >
-              <source media="(max-width: 1024px)" src={HERO_SLIDES[activeSlide].mobileVideo} type="video/mp4" />
-              <source src={HERO_SLIDES[activeSlide].video} type="video/mp4" />
+              <source media="(max-width: 1024px)" src={HERO_REEL_COMPACT_VIDEO} type="video/mp4" />
+              <source src={HERO_REEL_VIDEO} type="video/mp4" />
             </video>
-          </motion.div>
-        </AnimatePresence>
+        </div>
 
         <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(10,5,2,.64)_0%,rgba(10,5,2,.08)_35%,rgba(10,5,2,.25)_62%,rgba(10,5,2,.82)_100%)]" />
         <div className="coffee-grain absolute inset-0 opacity-[0.12] mix-blend-soft-light pointer-events-none" />
