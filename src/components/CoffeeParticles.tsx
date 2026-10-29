@@ -33,7 +33,7 @@ export default function CoffeeParticles() {
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
     const createParticles = () => {
-      const count = width < 768 ? 42 : Math.min(120, Math.floor(width / 12));
+      const count = Math.min(72, Math.floor(width / 22));
       particles = Array.from({ length: count }, () => ({
         x: Math.random() * width,
         y: Math.random() * height,
@@ -49,7 +49,7 @@ export default function CoffeeParticles() {
     const resize = () => {
       width = window.innerWidth;
       height = window.innerHeight;
-      const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+      const pixelRatio = Math.min(window.devicePixelRatio || 1, 1.5);
       canvas.width = Math.floor(width * pixelRatio);
       canvas.height = Math.floor(height * pixelRatio);
       canvas.style.width = `${width}px`;
@@ -163,7 +163,7 @@ export default function CoffeeParticles() {
     <canvas
       ref={canvasRef}
       aria-hidden="true"
-      className="pointer-events-none fixed inset-0 z-[45] opacity-80 mix-blend-screen"
+      className="pointer-events-none fixed inset-0 z-[45] opacity-70"
     />
   );
 }

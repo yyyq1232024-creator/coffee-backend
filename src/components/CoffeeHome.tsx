@@ -203,6 +203,7 @@ export default function CoffeeHome({
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const storyRef = useRef<HTMLDivElement>(null);
   const philosophyRef = useRef<HTMLElement>(null);
+  const heroVideoRef = useRef<HTMLVideoElement>(null);
   const nextVideoPreloadRef = useRef<HTMLVideoElement | null>(null);
   const { scrollYProgress: philosophyProgress } = useScroll({
     target: philosophyRef,
@@ -264,6 +265,49 @@ export default function CoffeeHome({
     window.addEventListener('scroll', updateNavigation, { passive: true });
     return () => window.removeEventListener('scroll', updateNavigation);
   }, []);
+
+  useEffect(() => {
+    let animationFrame = 0;
+
+    const resumeVisibleHeroVideo = () => {
+      window.cancelAnimationFrame(animationFrame);
+      animationFrame = window.requestAnimationFrame(() => {
+        const video = heroVideoRef.current;
+        if (!video || document.hidden || !video.paused) return;
+
+        const bounds = video.getBoundingClientRect();
+        const isVisible = bounds.bottom > 0 && bounds.top < window.innerHeight;
+        if (isVisible) void video.play().catch(() => undefined);
+      });
+    };
+
+    const handleVisibilityChange = () => {
+      if (!document.hidden) resumeVisibleHeroVideo();
+    };
+
+    resumeVisibleHeroVideo();
+    window.addEventListener('scroll', resumeVisibleHeroVideo, { passive: true });
+    window.addEventListener('wheel', resumeVisibleHeroVideo, { passive: true });
+    window.addEventListener('pageshow', resumeVisibleHeroVideo);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.cancelAnimationFrame(animationFrame);
+      window.removeEventListener('scroll', resumeVisibleHeroVideo);
+      window.removeEventListener('wheel', resumeVisibleHeroVideo);
+      window.removeEventListener('pageshow', resumeVisibleHeroVideo);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [activeSlide, activeMobileSlide, isMobileViewport]);
+
+  const keepHeroVideoPlaying = (video: HTMLVideoElement) => {
+    heroVideoRef.current = video;
+    if (document.hidden || !video.paused) return;
+    const bounds = video.getBoundingClientRect();
+    if (bounds.bottom > 0 && bounds.top < window.innerHeight) {
+      void video.play().catch(() => undefined);
+    }
+  };
 
   const scrollToStories = () => {
     storyRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -395,6 +439,7 @@ export default function CoffeeHome({
 
                 <div className="relative overflow-hidden border border-white/18 bg-black shadow-[0_24px_70px_rgba(0,0,0,.36)]">
                   <video
+                    ref={heroVideoRef}
                     key={mobileSlide.mobileVideo}
                     className="aspect-video w-full object-cover"
                     poster={mobileSlide.image}
@@ -404,6 +449,8 @@ export default function CoffeeHome({
                     playsInline
                     preload="auto"
                     disablePictureInPicture
+                    onCanPlay={(event) => keepHeroVideoPlaying(event.currentTarget)}
+                    onPause={(event) => keepHeroVideoPlaying(event.currentTarget)}
                     aria-label={mobileSlide.copy}
                   >
                     <source src={mobileSlide.mobileVideo} type="video/mp4" />
@@ -471,6 +518,7 @@ export default function CoffeeHome({
             className="absolute inset-0"
           >
             <video
+              ref={heroVideoRef}
               key={HERO_SLIDES[activeSlide].video}
               className="h-full w-full object-cover"
               poster={HERO_SLIDES[activeSlide].image}
@@ -480,6 +528,8 @@ export default function CoffeeHome({
               playsInline
               preload="auto"
               disablePictureInPicture
+              onCanPlay={(event) => keepHeroVideoPlaying(event.currentTarget)}
+              onPause={(event) => keepHeroVideoPlaying(event.currentTarget)}
               aria-label={HERO_SLIDES[activeSlide].copy}
             >
               <source media="(max-width: 1024px)" src={HERO_SLIDES[activeSlide].mobileVideo} type="video/mp4" />
@@ -493,7 +543,7 @@ export default function CoffeeHome({
 
         <header className={`fixed inset-x-0 top-0 z-[60] px-5 transition-all duration-500 md:px-10 ${
           isScrolled
-            ? 'bg-[#120b08]/82 py-3 shadow-[0_16px_60px_rgba(0,0,0,.24)] backdrop-blur-xl'
+            ? 'bg-[#120b08]/96 py-3 shadow-[0_16px_60px_rgba(0,0,0,.24)]'
             : 'bg-transparent py-5 md:py-7'
         }`}>
           <div className={`flex items-center justify-between gap-5 transition-all duration-500 ${
