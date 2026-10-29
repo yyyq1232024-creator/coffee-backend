@@ -8,6 +8,16 @@
 }
 
 @layer base {
+  ::selection {
+    background-color: #b9824a;
+    color: #fffaf2;
+  }
+
+  ::-moz-selection {
+    background-color: #b9824a;
+    color: #fffaf2;
+  }
+
   body {
     background-color: #FAF9F5;
     color: #1e293b;

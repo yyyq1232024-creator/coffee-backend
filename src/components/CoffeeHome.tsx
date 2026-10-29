@@ -241,7 +241,6 @@ export default function CoffeeHome({
 
   useEffect(() => {
     const compactPlayback = window.matchMedia('(max-width: 1024px)').matches;
-    if (!compactPlayback) return;
     const slides = isMobileViewport ? MOBILE_HERO_SLIDES : HERO_SLIDES;
     const currentSlide = isMobileViewport ? activeMobileSlide : activeSlide;
     const nextSlide = slides[(currentSlide + 1) % slides.length];
@@ -249,7 +248,7 @@ export default function CoffeeHome({
     preloadVideo.preload = 'auto';
     preloadVideo.muted = true;
     preloadVideo.playsInline = true;
-    preloadVideo.src = nextSlide.mobileVideo;
+    preloadVideo.src = compactPlayback ? nextSlide.mobileVideo : nextSlide.video;
     preloadVideo.load();
     nextVideoPreloadRef.current = preloadVideo;
     return () => {
