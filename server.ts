@@ -10,8 +10,14 @@ import {
   getAllUsers,
   getRawUsers,
   getUserById,
+  getUserBySessionToken,
   getStoredUserByUsername,
   getStoredUserByEmail,
+  createUserSession,
+  deleteUserSession,
+  deleteUserSessionsByUserId,
+  deleteExpiredUserSessions,
+  touchUserSession,
   insertUser,
   updateUser,
   deleteUserById,
@@ -46,8 +52,7 @@ interface AuthenticatedRequest extends express.Request {
   user?: User;
 }
 
-// In-memory active sessions mapping: token -> User
-const activeSessions = new Map<string, User>();
+const SESSION_TTL_DAYS = Math.max(1, Number(process.env.SESSION_TTL_DAYS) || 30);
 const assistantRateLimits = new Map<string, { count: number; resetAt: number }>();
 
 // Authentication middleware
@@ -62,20 +67,12 @@ const authMiddleware = async (
     return;
   }
 
-  const token = authHeader.substring(7);
-  const user = activeSessions.get(token);
-  
-  if (!user) {
-    res.status(401).json({ success: false, error: "登录凭证失效或已过期，请重新登录" });
-    return;
-  }
-
   try {
-    // Refresh user state from database to ensure up-to-date role/status/metadata
-    const freshUser = await getUserById(user.id);
+    const token = authHeader.substring(7);
+    const freshUser = await getUserBySessionToken(token);
     
     if (!freshUser) {
-      res.status(401).json({ success: false, error: "用户账户不存在" });
+      res.status(401).json({ success: false, error: "登录凭证失效或已过期，请重新登录" });
       return;
     }
 
@@ -214,10 +211,12 @@ app.post("/api/auth/login", async (req, res) => {
       return;
     }
 
-    // Create token
-    const token = "auth-token-" + crypto.randomBytes(16).toString("hex");
+    // Store only the token digest in PostgreSQL so a Render restart cannot end the session.
+    const token = "auth-token-" + crypto.randomBytes(32).toString("hex");
+    const expiresAt = new Date(Date.now() + SESSION_TTL_DAYS * 24 * 60 * 60 * 1000);
     const { salt, passwordHash, ...formatted } = user;
-    activeSessions.set(token, formatted);
+    await deleteExpiredUserSessions();
+    await createUserSession(token, user.id, expiresAt);
     console.log("🎉 [API] 用户登录成功, Token已分发:", user.username);
 
     res.json({
@@ -225,7 +224,8 @@ app.post("/api/auth/login", async (req, res) => {
       message: "登录成功",
       data: {
         token,
-        user: formatted
+        user: formatted,
+        expiresAt: expiresAt.toISOString(),
       }
     });
   } catch (error) {
@@ -235,17 +235,27 @@ app.post("/api/auth/login", async (req, res) => {
 });
 
 // Logout
-app.post("/api/auth/logout", (req, res) => {
+app.post("/api/auth/logout", async (req, res) => {
   const authHeader = req.headers.authorization;
-  if (authHeader && authHeader.startsWith("Bearer ")) {
-    const token = authHeader.substring(7);
-    activeSessions.delete(token);
+  try {
+    if (authHeader && authHeader.startsWith("Bearer ")) {
+      await deleteUserSession(authHeader.substring(7));
+    }
+    res.json({ success: true, message: "注销登录成功" });
+  } catch (error) {
+    console.error("Logout session cleanup error:", error);
+    res.status(500).json({ success: false, error: "注销失败，请稍后重试" });
   }
-  res.json({ success: true, message: "注销登录成功" });
 });
 
 // Get current user info
 app.get("/api/auth/me", authMiddleware, (req: AuthenticatedRequest, res) => {
+  const authHeader = req.headers.authorization;
+  if (authHeader?.startsWith("Bearer ")) {
+    void touchUserSession(authHeader.substring(7)).catch((error) => {
+      console.error("Failed to update session last_seen_at:", error);
+    });
+  }
   res.json({
     success: true,
     data: req.user
@@ -432,6 +442,9 @@ app.put("/api/admin/users/:id", authMiddleware, adminMiddleware, async (req, res
     }
 
     await updateUser(req.params.id, updates);
+    if ((password && password.trim() !== "") || status === "suspended") {
+      await deleteUserSessionsByUserId(req.params.id);
+    }
     const freshUser = await getUserById(req.params.id);
 
     res.json({

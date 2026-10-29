@@ -38,24 +38,40 @@ export default function App() {
     }
   }, [currentTab]);
 
-  // Auto check session from localStorage on startup
+  // Restore the browser token only after the server confirms the persisted session.
   useEffect(() => {
-    const storedToken = localStorage.getItem('auth_token');
-    const storedUser = localStorage.getItem('auth_user');
-    
-    if (storedToken && storedUser) {
-      try {
-        const parsedUser = JSON.parse(storedUser);
-        setToken(storedToken);
-        setUser(parsedUser);
-        // Do not force-redirect on startup or page refresh so user always lands on the main lobby 'shop' page!
-      } catch (e) {
-        // Clear corrupt data
-        localStorage.removeItem('auth_token');
-        localStorage.removeItem('auth_user');
+    let cancelled = false;
+
+    const restoreSession = async () => {
+      const storedToken = localStorage.getItem('auth_token');
+      const storedUser = localStorage.getItem('auth_user');
+
+      if (storedToken && storedUser) {
+        try {
+          JSON.parse(storedUser);
+          const response = await fetch('/api/auth/me', {
+            headers: { 'Authorization': `Bearer ${storedToken}` },
+          });
+          const result = await response.json();
+          if (!response.ok || !result.success) throw new Error(result.error || '登录状态已过期');
+          if (!cancelled) {
+            setToken(storedToken);
+            setUser(result.data);
+            localStorage.setItem('auth_user', JSON.stringify(result.data));
+          }
+        } catch {
+          localStorage.removeItem('auth_token');
+          localStorage.removeItem('auth_user');
+        }
       }
-    }
-    setLoading(false);
+
+      if (!cancelled) setLoading(false);
+    };
+
+    restoreSession();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Show dynamic self-dismissing toast notifications

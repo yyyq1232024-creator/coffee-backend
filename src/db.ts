@@ -26,6 +26,10 @@ export function normalizeEmail(email: string): string {
   return email.trim().normalize("NFKC").toLowerCase();
 }
 
+function hashSessionToken(token: string): string {
+  return crypto.createHash("sha256").update(token).digest("hex");
+}
+
 export async function initDatabase(): Promise<void> {
   const connectionString = process.env.DATABASE_URL || process.env.SUPABASE_DATABASE_URL;
   if (!connectionString) {
@@ -64,6 +68,8 @@ function mapStoredUser(row: any): StoredUser {
 
 const userColumns = `id, username, name, email, role, status, bio, avatar,
   created_at as "createdAt"`;
+const aliasedUserColumns = `u.id, u.username, u.name, u.email, u.role, u.status, u.bio, u.avatar,
+  u.created_at as "createdAt"`;
 const storedUserColumns = `${userColumns}, salt, password_hash as "passwordHash"`;
 
 export async function getAllUsers(): Promise<User[]> {
@@ -79,6 +85,49 @@ export async function getRawUsers(): Promise<StoredUser[]> {
 export async function getUserById(id: string): Promise<User | null> {
   const { rows } = await database().query(`select ${userColumns} from public.users where id = $1`, [id]);
   return rows[0] ? mapUser(rows[0]) : null;
+}
+
+export async function createUserSession(token: string, userId: string, expiresAt: Date): Promise<void> {
+  await database().query(
+    `insert into public.user_sessions (token_hash, user_id, expires_at)
+     values ($1, $2, $3)`,
+    [hashSessionToken(token), userId, expiresAt],
+  );
+}
+
+export async function getUserBySessionToken(token: string): Promise<User | null> {
+  const { rows } = await database().query(
+    `select ${aliasedUserColumns}
+       from public.user_sessions s
+       join public.users u on u.id = s.user_id
+      where s.token_hash = $1
+        and s.expires_at > now()
+      limit 1`,
+    [hashSessionToken(token)],
+  );
+  return rows[0] ? mapUser(rows[0]) : null;
+}
+
+export async function deleteUserSession(token: string): Promise<void> {
+  await database().query(`delete from public.user_sessions where token_hash = $1`, [hashSessionToken(token)]);
+}
+
+export async function deleteUserSessionsByUserId(userId: string): Promise<void> {
+  await database().query(`delete from public.user_sessions where user_id = $1`, [userId]);
+}
+
+export async function touchUserSession(token: string): Promise<void> {
+  await database().query(
+    `update public.user_sessions
+        set last_seen_at = now()
+      where token_hash = $1
+        and expires_at > now()`,
+    [hashSessionToken(token)],
+  );
+}
+
+export async function deleteExpiredUserSessions(): Promise<void> {
+  await database().query(`delete from public.user_sessions where expires_at <= now()`);
 }
 
 export async function getStoredUserByUsername(username: string): Promise<StoredUser | null> {
