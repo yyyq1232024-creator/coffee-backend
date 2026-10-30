@@ -3,7 +3,7 @@ import { AnimatePresence, motion, useScroll, useTransform } from 'motion/react';
 import { ArrowDown, ArrowRight, BookOpen, Coffee, Home, LayoutDashboard, LogOut, Menu, MessageCircle, UserRound, X } from 'lucide-react';
 import { User as UserType } from '../types';
 import CoffeeCursor from './CoffeeCursor';
-import CoffeeParticles from './CoffeeParticles';
+import StoryGlassGallery from './StoryGlassGallery';
 
 type HomeTab = 'home' | 'menu' | 'builder' | 'wishlist' | 'cart' | 'about' | 'contact' | 'printer';
 
@@ -17,7 +17,7 @@ interface CoffeeHomeProps {
   onLogout?: () => void;
 }
 
-const HERO_SLIDES = [
+const HERO_SLIDE_LIBRARY = [
   {
     eyebrow: 'FIRST CUP / 01',
     title: ['PURE', 'RITUAL'],
@@ -84,8 +84,7 @@ const HERO_SLIDES = [
   },
 ];
 
-const HERO_REEL_VIDEO = '/media/hero-reel-4k.mp4?v=20261029-reel';
-const HERO_REEL_COMPACT_VIDEO = '/media/hero-reel-mobile.mp4?v=20261029-reel';
+const HERO_SLIDES = [HERO_SLIDE_LIBRARY[0], HERO_SLIDE_LIBRARY[4], HERO_SLIDE_LIBRARY[5]];
 
 const MOBILE_HERO_SLIDES = [
   {
@@ -95,18 +94,13 @@ const MOBILE_HERO_SLIDES = [
   },
   {
     ...HERO_SLIDES[1],
-    mobileTitle: '海浪，从来不赶时间。',
-    mobileNote: 'OCEAN RHYTHM',
+    mobileTitle: '安静的陪伴，也是一种风景。',
+    mobileNote: 'QUIET COMPANY',
   },
   {
     ...HERO_SLIDES[2],
-    mobileTitle: '让湖面，替你慢下来。',
-    mobileNote: 'STILL WATERS',
-  },
-  {
-    ...HERO_SLIDES[3],
-    mobileTitle: '沿途，本来就是目的地。',
-    mobileNote: 'TAKE YOUR TIME',
+    mobileTitle: '慢慢冲煮，也慢慢抵达。',
+    mobileNote: 'POUR SLOWLY',
   },
 ];
 
@@ -153,6 +147,7 @@ const STORIES = [
     english: 'Born at altitude.',
     copy: '我们追随季节寻找高海拔优质产区，与认真对待土地的人合作。柑橘、红茶、花香与成熟浆果——风味不是被添加，而是被好好保留下来。',
     image: 'https://images.unsplash.com/photo-1461988091159-192b6df7054f?auto=format&fit=crop&w=2200&q=90',
+    video: '/media/glass-origin.mp4',
   },
   {
     number: '02',
@@ -161,6 +156,7 @@ const STORIES = [
     english: 'Time is an ingredient.',
     copy: '每天的温度与湿度都不同，所以冲煮从来不该只是重复。研磨、水温、闷蒸和流速，在咖啡师手里共同完成一杯当日限定。',
     image: 'https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?auto=format&fit=crop&w=2200&q=90',
+    video: '/media/glass-brew.mp4',
   },
   {
     number: '03',
@@ -169,6 +165,7 @@ const STORIES = [
     english: 'Room to stay awhile.',
     copy: '木、石、微光和黑胶的低频组成一间安静的咖啡馆。这里不催促你离开，也不要求你忙碌，只提供一段可以慢下来的时间。',
     image: 'https://images.unsplash.com/photo-1498804103079-a6351b050096?auto=format&fit=crop&w=2200&q=90',
+    video: '/media/glass-space.mp4',
   },
   {
     number: '04',
@@ -177,6 +174,7 @@ const STORIES = [
     english: 'Made yours, kept close.',
     copy: '保存一杯专属特调，也保存那天的心情。登录会员即可同步收藏与订单，让每一次回到悠然，都能快速找到熟悉的风味。',
     image: 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&w=2200&q=90',
+    video: '/media/glass-memory.mp4',
   },
 ];
 
@@ -198,8 +196,6 @@ export default function CoffeeHome({
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const storyRef = useRef<HTMLDivElement>(null);
   const philosophyRef = useRef<HTMLElement>(null);
-  const heroVideoRef = useRef<HTMLVideoElement>(null);
-  const nextVideoPreloadRef = useRef<HTMLVideoElement | null>(null);
   const { scrollYProgress: philosophyProgress } = useScroll({
     target: philosophyRef,
     offset: ['start end', 'end start'],
@@ -224,6 +220,14 @@ export default function CoffeeHome({
   }, [isMobileViewport]);
 
   useEffect(() => {
+    if (isMobileViewport) return;
+    const timer = window.setInterval(() => {
+      setActiveSlide((current) => (current + 1) % HERO_SLIDES.length);
+    }, 5000);
+    return () => window.clearInterval(timer);
+  }, [isMobileViewport]);
+
+  useEffect(() => {
     const slides = window.matchMedia('(max-width: 767px)').matches ? MOBILE_HERO_SLIDES : HERO_SLIDES;
     slides.forEach((slide) => {
       const image = new Image();
@@ -232,78 +236,11 @@ export default function CoffeeHome({
   }, []);
 
   useEffect(() => {
-    if (!isMobileViewport) return;
-    const slides = MOBILE_HERO_SLIDES;
-    const currentSlide = activeMobileSlide;
-    const nextSlide = slides[(currentSlide + 1) % slides.length];
-    const preloadVideo = document.createElement('video');
-    preloadVideo.preload = 'auto';
-    preloadVideo.muted = true;
-    preloadVideo.playsInline = true;
-    preloadVideo.src = nextSlide.mobileVideo;
-    preloadVideo.load();
-    nextVideoPreloadRef.current = preloadVideo;
-    return () => {
-      preloadVideo.removeAttribute('src');
-      preloadVideo.load();
-      if (nextVideoPreloadRef.current === preloadVideo) nextVideoPreloadRef.current = null;
-    };
-  }, [activeMobileSlide, isMobileViewport]);
-
-  useEffect(() => {
     const updateNavigation = () => setIsScrolled(window.scrollY > 48);
     updateNavigation();
     window.addEventListener('scroll', updateNavigation, { passive: true });
     return () => window.removeEventListener('scroll', updateNavigation);
   }, []);
-
-  useEffect(() => {
-    let animationFrame = 0;
-
-    const resumeVisibleHeroVideo = () => {
-      window.cancelAnimationFrame(animationFrame);
-      animationFrame = window.requestAnimationFrame(() => {
-        const video = heroVideoRef.current;
-        if (!video || document.hidden || !video.paused) return;
-
-        const bounds = video.getBoundingClientRect();
-        const isVisible = bounds.bottom > 0 && bounds.top < window.innerHeight;
-        if (isVisible) void video.play().catch(() => undefined);
-      });
-    };
-
-    const handleVisibilityChange = () => {
-      if (!document.hidden) resumeVisibleHeroVideo();
-    };
-
-    resumeVisibleHeroVideo();
-    window.addEventListener('scroll', resumeVisibleHeroVideo, { passive: true });
-    window.addEventListener('wheel', resumeVisibleHeroVideo, { passive: true });
-    window.addEventListener('pageshow', resumeVisibleHeroVideo);
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-
-    return () => {
-      window.cancelAnimationFrame(animationFrame);
-      window.removeEventListener('scroll', resumeVisibleHeroVideo);
-      window.removeEventListener('wheel', resumeVisibleHeroVideo);
-      window.removeEventListener('pageshow', resumeVisibleHeroVideo);
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
-  }, [activeMobileSlide, isMobileViewport]);
-
-  const keepHeroVideoPlaying = (video: HTMLVideoElement) => {
-    heroVideoRef.current = video;
-    if (document.hidden || !video.paused) return;
-    const bounds = video.getBoundingClientRect();
-    if (bounds.bottom > 0 && bounds.top < window.innerHeight) {
-      void video.play().catch(() => undefined);
-    }
-  };
-
-  const syncDesktopSlideToVideo = (video: HTMLVideoElement) => {
-    const nextSlide = Math.min(HERO_SLIDES.length - 1, Math.floor(video.currentTime / 5));
-    setActiveSlide((current) => current === nextSlide ? current : nextSlide);
-  };
 
   const scrollToStories = () => {
     storyRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -322,12 +259,8 @@ export default function CoffeeHome({
   const openMemberArea = () => (user ? onNavigateToProfile?.() : onNavigateToLogin());
 
   return (
-    <div
-      className="coffee-home bg-[#100a07] text-white overflow-clip"
-      data-hero-slide={isMobileViewport ? activeMobileSlide : activeSlide}
-    >
+    <div className="coffee-home bg-[#100a07] text-white overflow-clip">
       <CoffeeCursor />
-      <CoffeeParticles />
       {isMobileViewport ? (
         <section className="relative min-h-[100svh] overflow-hidden bg-[#0b0806] md:hidden">
           <AnimatePresence initial={false} mode="sync">
@@ -437,25 +370,17 @@ export default function CoffeeHome({
                 </div>
 
                 <div className="relative overflow-hidden border border-white/18 bg-black shadow-[0_24px_70px_rgba(0,0,0,.36)]">
-                  <video
-                    ref={heroVideoRef}
-                    key={mobileSlide.mobileVideo}
+                  <motion.img
+                    key={mobileSlide.image}
+                    initial={{ scale: 1.07 }}
+                    animate={{ scale: 1 }}
+                    transition={{ duration: 5, ease: 'linear' }}
+                    src={mobileSlide.image}
+                    alt={mobileSlide.copy}
                     className="aspect-video w-full object-cover"
-                    poster={mobileSlide.image}
-                    autoPlay
-                    muted
-                    loop
-                    playsInline
-                    preload="auto"
-                    disablePictureInPicture
-                    onCanPlay={(event) => keepHeroVideoPlaying(event.currentTarget)}
-                    onPause={(event) => keepHeroVideoPlaying(event.currentTarget)}
-                    aria-label={mobileSlide.copy}
-                  >
-                    <source src={mobileSlide.mobileVideo} type="video/mp4" />
-                  </video>
+                  />
                   <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,transparent_55%,rgba(5,3,2,.38)_100%)]" />
-                  <span className="absolute bottom-3 left-3 text-[7px] tracking-[0.22em] text-white/62">REAL TIME / ORIGINAL SPEED</span>
+                  <span className="absolute bottom-3 left-3 text-[7px] tracking-[0.22em] text-white/62">STILL FRAME / HIGH RESOLUTION</span>
                 </div>
 
                 <div className="mt-auto pt-7">
@@ -507,25 +432,19 @@ export default function CoffeeHome({
         </section>
       ) : (
       <section className="relative min-h-[100svh] overflow-hidden bg-[#160d08]">
-        <div className="absolute inset-0">
-            <video
-              ref={heroVideoRef}
-              className="h-full w-full object-cover"
-              poster={HERO_SLIDES[0].image}
-              autoPlay
-              muted
-              loop
-              playsInline
-              preload="auto"
-              disablePictureInPicture
-              onCanPlay={(event) => keepHeroVideoPlaying(event.currentTarget)}
-              onPause={(event) => keepHeroVideoPlaying(event.currentTarget)}
-              onTimeUpdate={(event) => syncDesktopSlideToVideo(event.currentTarget)}
-              aria-label={HERO_SLIDES[activeSlide].copy}
-            >
-              <source media="(max-width: 1024px)" src={HERO_REEL_COMPACT_VIDEO} type="video/mp4" />
-              <source src={HERO_REEL_VIDEO} type="video/mp4" />
-            </video>
+        <div className="absolute inset-0 bg-black">
+          <AnimatePresence initial={false} mode="sync">
+            <motion.img
+              key={HERO_SLIDES[activeSlide].image}
+              initial={{ opacity: 0, scale: 1.055 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 1.015 }}
+              transition={{ opacity: { duration: 1.15 }, scale: { duration: 5, ease: 'linear' } }}
+              src={HERO_SLIDES[activeSlide].image}
+              alt={HERO_SLIDES[activeSlide].copy}
+              className="absolute inset-0 h-full w-full object-cover"
+            />
+          </AnimatePresence>
         </div>
 
         <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(10,5,2,.64)_0%,rgba(10,5,2,.08)_35%,rgba(10,5,2,.25)_62%,rgba(10,5,2,.82)_100%)]" />
@@ -715,11 +634,9 @@ export default function CoffeeHome({
 
       <section
         ref={philosophyRef}
-        data-philosophy-anchor
         onPointerMove={handlePhilosophyPointerMove}
         className="relative isolate min-h-[78svh] overflow-hidden bg-[#ede7dc] px-5 py-24 text-[#24140d] md:px-10 md:py-36"
       >
-        <div aria-hidden="true" className="philosophy-aroma-bloom pointer-events-none absolute inset-0 -z-10" />
         <div
           aria-hidden="true"
           className="pointer-events-none absolute inset-0 -z-10 opacity-70 transition-opacity duration-700"
@@ -800,87 +717,12 @@ export default function CoffeeHome({
         </motion.div>
       </section>
 
-      <section ref={storyRef} className="relative bg-[#100a07]">
-        {STORIES.map((story, index) => {
-          const isLight = index === 1 || index === 3;
-          return (
-            <article
-              key={story.number}
-              className={`grid min-h-[100svh] overflow-hidden border-t md:grid-cols-2 ${
-                isLight
-                  ? 'border-[#24140d]/10 bg-[#d3ab78] text-[#24140d]'
-                  : 'border-white/10 bg-[#100a07] text-white'
-              }`}
-            >
-              <motion.div
-                initial={{ opacity: 0, x: index % 2 === 0 ? -70 : 70 }}
-                whileInView={{ opacity: 1, x: 0 }}
-                viewport={{ once: false, amount: 0.18 }}
-                transition={{ duration: 0.9, ease: [0.22, 1, 0.36, 1] }}
-                className={`relative min-h-[58svh] overflow-hidden md:min-h-screen ${index % 2 === 1 ? 'md:order-2' : ''}`}
-              >
-                <motion.img
-                  initial={{ scale: 1.08 }}
-                  whileInView={{ scale: 1 }}
-                  viewport={{ once: false, amount: 0.25 }}
-                  transition={{ duration: 1.4, ease: [0.22, 1, 0.36, 1] }}
-                  src={story.image}
-                  alt={story.title}
-                  className="absolute inset-0 h-full w-full object-cover"
-                  referrerPolicy="no-referrer"
-                />
-                <div className={`absolute inset-0 ${isLight ? 'bg-[#3b1e0b]/12' : 'bg-black/18'}`} />
-                <span className="absolute left-6 top-6 border border-white/35 bg-black/15 px-3 py-2 font-mono text-[9px] tracking-[0.22em] text-white backdrop-blur-md md:left-10 md:top-28">
-                  IMAGE / {story.number}
-                </span>
-              </motion.div>
-
-              <motion.div
-                initial={{ opacity: 0, y: 62 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: false, amount: 0.28 }}
-                transition={{ duration: 0.85, delay: 0.08, ease: [0.22, 1, 0.36, 1] }}
-                className={`relative flex min-h-[70svh] flex-col justify-between px-7 py-16 md:min-h-screen md:px-14 md:pb-14 md:pt-32 lg:px-20 ${
-                  index % 2 === 1 ? 'md:order-1' : ''
-                }`}
-              >
-                <div className={`flex items-center justify-between border-b pb-5 text-[9px] font-semibold tracking-[0.26em] ${
-                  isLight ? 'border-[#24140d]/20' : 'border-white/18'
-                }`}>
-                  <span>{story.label}</span>
-                  <span>{story.number} / 04</span>
-                </div>
-
-                <div className="my-auto py-14">
-                  <p className={`font-serif text-lg italic md:text-xl ${isLight ? 'text-[#24140d]/55' : 'text-white/48'}`}>{story.english}</p>
-                  <h3 className="mt-4 max-w-xl text-4xl font-bold tracking-[-0.04em] sm:text-5xl lg:text-7xl">{story.title}</h3>
-                  <p className={`mt-8 max-w-xl text-sm leading-8 lg:text-base ${isLight ? 'text-[#24140d]/68' : 'text-white/62'}`}>{story.copy}</p>
-
-                  {index === STORIES.length - 1 && (
-                    <button
-                      onClick={() => onNavigate(user ? 'wishlist' : 'builder')}
-                      className={`mt-10 inline-flex items-center gap-3 border px-6 py-3 text-[10px] font-bold tracking-[0.18em] transition ${
-                        isLight
-                          ? 'border-[#24140d]/35 text-[#24140d] hover:bg-[#24140d] hover:text-[#d3ab78]'
-                          : 'border-white/35 text-white hover:bg-white hover:text-black'
-                      }`}
-                    >
-                      {user ? '查看我的专属配方' : '进入私人特调工坊'} <ArrowRight className="h-3.5 w-3.5" />
-                    </button>
-                  )}
-                </div>
-
-                <div className={`flex items-center gap-4 border-t pt-5 text-[9px] tracking-[0.24em] ${
-                  isLight ? 'border-[#24140d]/20 text-[#24140d]/55' : 'border-white/18 text-white/42'
-                }`}>
-                  <span className="h-px w-10 bg-current" />
-                  {index < STORIES.length - 1 ? 'CONTINUE TO NEXT CHAPTER' : 'THE STORY CONTINUES'}
-                </div>
-              </motion.div>
-            </article>
-          );
-        })}
-      </section>
+      <StoryGlassGallery
+        stories={STORIES}
+        sectionRef={storyRef}
+        finalCtaLabel={user ? '查看我的专属配方' : '进入私人特调工坊'}
+        onFinalCta={() => onNavigate(user ? 'wishlist' : 'builder')}
+      />
 
       <section className="bg-[#d9aa73] px-5 py-20 text-[#24140d] md:px-10 md:py-28">
         <div className="mx-auto flex max-w-7xl flex-col items-start justify-between gap-10 md:flex-row md:items-end">

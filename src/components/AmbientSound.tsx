@@ -1,129 +1,99 @@
 import { useEffect, useRef, useState } from 'react';
-import { Volume2, VolumeX } from 'lucide-react';
+import { Music2, Volume2, VolumeX } from 'lucide-react';
 
 const STORAGE_KEY = 'yuran_ambient_sound_enabled';
-type SoundGraph = { context: AudioContext; master: GainNode; sources: AudioScheduledSourceNode[] };
+const TARGET_VOLUME = 0.2;
 
 export default function AmbientSound() {
-  const [enabled, setEnabled] = useState(false);
-  const graphRef = useRef<SoundGraph | null>(null);
-  const enabledRef = useRef(false);
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const fadeFrameRef = useRef(0);
+  const [entered, setEntered] = useState(false);
+  const [enabled, setEnabled] = useState(() => localStorage.getItem(STORAGE_KEY) !== 'false');
 
-  const createGraph = () => {
-    if (graphRef.current) return graphRef.current;
-    const AudioContextConstructor = window.AudioContext || (window as typeof window & { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-    const context = new AudioContextConstructor();
-    const master = context.createGain();
-    master.gain.value = 0.0001;
-    master.connect(context.destination);
-
-    const padBus = context.createGain();
-    const padFilter = context.createBiquadFilter();
-    padBus.gain.value = 0.13;
-    padFilter.type = 'lowpass';
-    padFilter.frequency.value = 520;
-    padFilter.Q.value = 0.6;
-    padBus.connect(padFilter).connect(master);
-
-    const sources: AudioScheduledSourceNode[] = [];
-    [110, 164.81, 220].forEach((frequency, index) => {
-      const oscillator = context.createOscillator();
-      const gain = context.createGain();
-      oscillator.type = index === 1 ? 'triangle' : 'sine';
-      oscillator.frequency.value = frequency;
-      oscillator.detune.value = [-7, 4, -2][index];
-      gain.gain.value = [0.045, 0.025, 0.018][index];
-      oscillator.connect(gain).connect(padBus);
-      oscillator.start();
-      sources.push(oscillator);
-    });
-
-    const lfo = context.createOscillator();
-    const lfoGain = context.createGain();
-    lfo.frequency.value = 0.055;
-    lfoGain.gain.value = 0.035;
-    lfo.connect(lfoGain).connect(padBus.gain);
-    lfo.start();
-    sources.push(lfo);
-
-    const noiseBuffer = context.createBuffer(1, context.sampleRate * 4, context.sampleRate);
-    const noiseData = noiseBuffer.getChannelData(0);
-    let brown = 0;
-    for (let index = 0; index < noiseData.length; index += 1) {
-      const white = Math.random() * 2 - 1;
-      brown = (brown + 0.02 * white) / 1.02;
-      noiseData[index] = brown * 2.8;
+  const fadeTo = async (target: number) => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    window.cancelAnimationFrame(fadeFrameRef.current);
+    if (target > 0) {
+      try { await audio.play(); } catch { return; }
     }
-    const noise = context.createBufferSource();
-    const noiseFilter = context.createBiquadFilter();
-    const noiseGain = context.createGain();
-    noise.buffer = noiseBuffer;
-    noise.loop = true;
-    noiseFilter.type = 'lowpass';
-    noiseFilter.frequency.value = 720;
-    noiseFilter.Q.value = 0.5;
-    noiseGain.gain.value = 0.055;
-    noise.connect(noiseFilter).connect(noiseGain).connect(master);
-    noise.start();
-    sources.push(noise);
-    graphRef.current = { context, master, sources };
-    return graphRef.current;
+    const startVolume = audio.volume;
+    const startedAt = performance.now();
+    const duration = target > 0 ? 1100 : 420;
+    const step = (time: number) => {
+      const progress = Math.max(0, Math.min(1, (time - startedAt) / duration));
+      const eased = 1 - Math.pow(1 - progress, 3);
+      const nextVolume = startVolume + (target - startVolume) * eased;
+      audio.volume = Math.max(0, Math.min(1, nextVolume));
+      if (progress < 1) fadeFrameRef.current = window.requestAnimationFrame(step);
+      else if (target === 0) audio.pause();
+    };
+    fadeFrameRef.current = window.requestAnimationFrame(step);
   };
 
-  const fadeTo = async (active: boolean) => {
-    const graph = createGraph();
-    if (graph.context.state === 'suspended') await graph.context.resume();
-    const now = graph.context.currentTime;
-    graph.master.gain.cancelScheduledValues(now);
-    graph.master.gain.setValueAtTime(Math.max(0.0001, graph.master.gain.value), now);
-    graph.master.gain.exponentialRampToValueAtTime(active ? 0.32 : 0.0001, now + (active ? 1.4 : 0.45));
-    if (!active) {
-      window.setTimeout(() => {
-        if (!enabledRef.current && graph.context.state === 'running') void graph.context.suspend();
-      }, 520);
-    }
+  const updateEnabled = (nextEnabled: boolean) => {
+    setEnabled(nextEnabled);
+    localStorage.setItem(STORAGE_KEY, String(nextEnabled));
+    if (entered) void fadeTo(nextEnabled ? TARGET_VOLUME : 0);
+  };
+
+  const enterExperience = () => {
+    setEntered(true);
+    if (enabled) void fadeTo(TARGET_VOLUME);
   };
 
   useEffect(() => {
-    const storedPreference = localStorage.getItem(STORAGE_KEY) === 'true';
-    enabledRef.current = storedPreference;
-    setEnabled(storedPreference);
-    const resumePreferredSound = () => { if (enabledRef.current) void fadeTo(true); };
-    window.addEventListener('pointerdown', resumePreferredSound, { once: true });
     const handleVisibility = () => {
-      const graph = graphRef.current;
-      if (!graph) return;
-      if (document.hidden) void graph.context.suspend();
-      else if (enabledRef.current) void graph.context.resume();
+      const audio = audioRef.current;
+      if (!audio) return;
+      if (document.hidden) audio.pause();
+      else if (entered && enabled) void audio.play().catch(() => undefined);
     };
     document.addEventListener('visibilitychange', handleVisibility);
     return () => {
-      window.removeEventListener('pointerdown', resumePreferredSound);
       document.removeEventListener('visibilitychange', handleVisibility);
-      const graph = graphRef.current;
-      if (graph) {
-        graph.sources.forEach((source) => { try { source.stop(); } catch { /* already stopped */ } });
-        void graph.context.close();
-      }
-      graphRef.current = null;
+      window.cancelAnimationFrame(fadeFrameRef.current);
     };
-  }, []);
-
-  const toggleSound = () => {
-    const nextEnabled = !enabledRef.current;
-    enabledRef.current = nextEnabled;
-    setEnabled(nextEnabled);
-    localStorage.setItem(STORAGE_KEY, String(nextEnabled));
-    void fadeTo(nextEnabled);
-  };
+  }, [enabled, entered]);
 
   return (
-    <button type="button" onClick={toggleSound} aria-pressed={enabled}
-      aria-label={enabled ? '关闭环境声音' : '开启环境声音'}
-      className={`ambient-sound-control ${enabled ? 'is-on' : ''}`}>
-      <span className="ambient-sound-control__icon" aria-hidden="true">{enabled ? <Volume2 /> : <VolumeX />}</span>
-      <span className="ambient-sound-control__copy"><small>AMBIENCE</small><strong>{enabled ? 'ON' : 'OFF'}</strong></span>
-      <span className="ambient-sound-control__meter" aria-hidden="true"><i /><i /><i /></span>
-    </button>
+    <>
+      <audio ref={audioRef} src="/media/yuran-ambient.mp3" loop preload="metadata" />
+
+      {!entered && (
+        <div className="sound-entry" role="dialog" aria-modal="true" aria-label="进入悠然咖啡体验">
+          <div className="sound-entry__grain" aria-hidden="true" />
+          <div className="sound-entry__halo" aria-hidden="true" />
+          <div className="sound-entry__content">
+            <span className="sound-entry__eyebrow">YURAN COFFEE HOUSE · DIGITAL EXPERIENCE</span>
+            <h2>把时间，<br />还给这一杯。</h2>
+            <p>图片、声音与滚动共同组成这段悠然旅程。</p>
+            <button type="button" className="sound-entry__toggle" onClick={() => updateEnabled(!enabled)} aria-pressed={enabled}>
+              <span>{enabled ? <Volume2 /> : <VolumeX />}</span>
+              SOUND {enabled ? 'ON' : 'OFF'}
+            </button>
+            <button type="button" className="sound-entry__enter" onClick={enterExperience}>
+              <span>进入悠然世界</span><i aria-hidden="true">ENTER</i>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {entered && (
+        <button
+          type="button"
+          onClick={() => updateEnabled(!enabled)}
+          aria-pressed={enabled}
+          aria-label={enabled ? '关闭背景音乐' : '开启背景音乐'}
+          className={`ambient-sound-control ${enabled ? 'is-on' : ''}`}
+        >
+          <span className="ambient-sound-control__icon" aria-hidden="true">{enabled ? <Volume2 /> : <VolumeX />}</span>
+          <span className="ambient-sound-control__copy"><small>ORIGINAL BGM</small><strong>{enabled ? 'SOUND ON' : 'SOUND OFF'}</strong></span>
+          <span className="ambient-sound-control__meter" aria-hidden="true"><i /><i /><i /></span>
+        </button>
+      )}
+
+      <span className="sr-only"><Music2 />背景音乐</span>
+    </>
   );
 }
